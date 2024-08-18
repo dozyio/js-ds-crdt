@@ -1,7 +1,7 @@
 import { CID } from 'multiformats/cid';
-import { MemoryBlockstore } from 'blockstore-core'; // Import an in-memory blockstore implementation
-import { CrdtNodeGetter, type DeltaOption } from './ipld'; // Adjust the import path as necessary
-import { delta } from './pb/delta';
+import { MemoryBlockstore } from 'blockstore-core';
+import { CrdtNodeGetter, type DeltaOption } from '../src/ipld';
+import { delta } from '../src//pb/delta';
 import * as codec from '@ipld/dag-pb';
 import * as Block from 'multiformats/block';
 import { sha256 as hasher } from 'multiformats/hashes/sha2';

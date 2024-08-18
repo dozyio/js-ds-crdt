@@ -18,8 +18,8 @@ const TombstonesBloomFilterHashes = 2;
 export class CRDTSet {
   private store: Datastore;
   private namespace: Key;
-  private putHook: (key: string, value: Uint8Array) => void;
-  private deleteHook: (key: string) => void;
+  private putHook?: (key: string, value: Uint8Array) => void;
+  private deleteHook?: (key: string) => void;
   private logger: Logger;
   private putElemsMux: Mutex;
   private tombstonesBloom: BloomFilter;
@@ -28,8 +28,8 @@ export class CRDTSet {
     store: Datastore,
     namespace: Key,
     logger: Logger,
-    putHook: (key: string, value: Uint8Array) => void,
-    deleteHook: (key: string) => void
+    putHook?: (key: string, value: Uint8Array) => void,
+    deleteHook?: (key: string) => void
   ) {
     this.store = store;
     this.namespace = namespace;
@@ -63,10 +63,11 @@ export class CRDTSet {
   }
 
   // Add a new element
-  public add(key: string, value: Uint8Array): Partial<pb.delta.Delta> {
+  public add(key: string, value: Uint8Array): pb.delta.Delta {
     return {
       elements: [{ key, value }] as pb.delta.Element[],
       tombstones: [],
+      priority: BigInt(0)
     };
   }
 
@@ -271,7 +272,9 @@ export class CRDTSet {
       // New priority is higher, or priorities are equal but value is lexicographically greater
       await writeStore.put(this.valueKey(key), value);
       await this.setPriority(writeStore, key, prio);
-      this.putHook(key, value);
+      if (this.putHook) {
+        this.putHook(key, value);
+      }
     }
   }
 
@@ -342,7 +345,9 @@ export class CRDTSet {
       await store.put(k, new Uint8Array());
 
       this.tombstonesBloom.add(elemKey);
-      this.deleteHook(elemKey);
+      if (this.deleteHook) {
+        this.deleteHook(elemKey);
+      }
     }
   }
 

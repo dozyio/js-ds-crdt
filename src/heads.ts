@@ -4,17 +4,17 @@ import { Key } from 'interface-datastore';
 import type { Logger } from '@libp2p/logger';
 import { Mutex } from 'async-mutex';
 import * as dagPb from '@ipld/dag-pb';
-import { dsKeyToCidV1, multihashToDsKey } from './utils';
+import { arrayBufferToBigInt, bigintToUint8Array, dsKeyToCidV1, multihashToDsKey } from './utils';
 
 interface Cache {
-  [cid: string]: number;
+  [cid: string]: bigint;
 }
 
-class Heads {
+export class Heads {
   private store: Datastore;
   private cache: Cache;
   private cacheMux: Mutex;
-  private namespace: Key;
+  public namespace: Key;
   private logger: Logger;
 
   constructor(store: Datastore, namespace: Key, logger: Logger) {
@@ -30,7 +30,7 @@ class Heads {
     return this.namespace.child(multihashKey); // Attach the namespace to the key
   }
 
-  public async isHead(c: CID): Promise<{ isHead: boolean, height: number }> {
+  public async isHead(c: CID): Promise<{ isHead: boolean, height: bigint}> {
     return this.cacheMux.runExclusive(async () => {
       for (const cachedCidStr in this.cache) {
         const cachedCid = CID.parse(cachedCidStr);
@@ -38,7 +38,7 @@ class Heads {
           return { isHead: true, height: this.cache[cachedCidStr] };
         }
       }
-      return { isHead: false, height: 0 };
+      return { isHead: false, height: 0n };
     });
   }
 
@@ -48,7 +48,7 @@ class Heads {
     });
   }
 
-public async replace(h: CID, c: CID, height: number): Promise<void> {
+public async replace(h: CID, c: CID, height: bigint): Promise<void> {
     let store = this.store;
 
     // Check if the original CID is among the current heads
@@ -73,15 +73,15 @@ public async replace(h: CID, c: CID, height: number): Promise<void> {
     });
 }
 
-  private async write(store: Datastore, c: CID, height: number): Promise<void> {
-    const buf = new Uint8Array(8);
-    const view = new DataView(buf.buffer);
-    view.setUint32(0, height, true);
+  private async write(store: Datastore, c: CID, height: bigint): Promise<void> {
+    // const buf = new Uint8Array(8);
+    // const view = new DataView(buf.buffer);
+    // view.setUint32(0, height, true);
 
     const key = this.key(c); // Now includes the namespace
     this.logger.trace(`Writing key: ${key.toString()}, CID: ${c.toString()}, height: ${height}`);
 
-    await store.put(key, buf);
+    await store.put(key, bigintToUint8Array(height));
   }
 
   private async delete(store: Datastore, c: CID): Promise<void> {
@@ -90,7 +90,7 @@ public async replace(h: CID, c: CID, height: number): Promise<void> {
     await store.delete(key);
   }
 
-  public async add(c: CID, height: number): Promise<void> {
+  public async add(c: CID, height: bigint): Promise<void> {
     this.logger.trace(`Adding new DAG head: ${c} (height: ${height})`);
     await this.write(this.store, c, height);
 
@@ -99,10 +99,12 @@ public async replace(h: CID, c: CID, height: number): Promise<void> {
     });
   }
 
-  public async list(): Promise<{ heads: CID[], maxHeight: number }> {
+  public async list(): Promise<{ heads: CID[], maxHeight: bigint}> {
     return this.cacheMux.runExclusive(async () => {
       const heads = Object.keys(this.cache).map(cidStr => CID.parse(cidStr));
-      const maxHeight = Math.max(...Object.values(this.cache));
+      const maxHeight = Object.values(this.cache)
+    .map(value => BigInt(value))
+    .reduce((max, current) => (current > max ? current : max), BigInt(0));
 
       heads.sort((a, b) => Buffer.compare(a.bytes, b.bytes));
 
@@ -126,7 +128,7 @@ public async replace(h: CID, c: CID, height: number): Promise<void> {
       try {
         const headCid = dsKeyToCidV1(new Key(multibaseStr), dagPb.code);
 
-        const height = new DataView(r.value.buffer).getUint32(0, true);
+        const height = arrayBufferToBigInt(r.value.buffer);
         this.cache[headCid.toString()] = height;
 
       } catch (error) {
@@ -136,5 +138,3 @@ public async replace(h: CID, c: CID, height: number): Promise<void> {
     }
   }
 }
-
-export { Heads };

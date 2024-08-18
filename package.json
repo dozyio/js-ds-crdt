@@ -1,29 +1,77 @@
 {
   "name": "js-ds-crdt",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "dist/lib/index.js",
   "license": "MIT",
+  "type": "module",
+  "types": "./dist/src/index.d.ts",
+  "files": [
+    "src",
+    "dist",
+    "!dist/test",
+    "!**/*.tsbuildinfo"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "eslintConfig": {
+    "extends": "ipfs",
+    "parserOptions": {
+      "project": true,
+      "sourceType": "module"
+    }
+  },
   "scripts": {
     "test": "vitest",
     "build": "tsc",
-    "protobuf": "protons src/pb/*.proto"
+    "start": "node dist/src/example/index.js",
+    "clean": "aegir clean",
+    "generate": "protons ./src/pb/*.proto",
+    "lint": "aegir lint",
+    "format": "yarn format:write",
+    "format:write": "yarn prettier --write --loglevel warn .",
+    "format:check": "yarn prettier --list-different ."
   },
   "devDependencies": {
+    "@types/node": "^22.4.0",
+    "aegir": "^44.1.1",
     "blockstore-core": "^5.0.0",
+    "eslint-plugin-n": "^17.10.2",
+    "prettier": "^3.3.3",
     "protobufjs": "^7.3.2",
     "protons": "^7.6.0",
+    "ts-node": "^10.9.2",
+    "tslib": "^2.6.3",
     "typescript": "^5.5.4",
     "vitest": "^2.0.5"
   },
   "dependencies": {
+    "@chainsafe/libp2p-gossipsub": "^13.1.1",
+    "@chainsafe/libp2p-noise": "^15.1.1",
+    "@chainsafe/libp2p-yamux": "^6.0.2",
     "@ipld/dag-pb": "^4.1.2",
+    "@libp2p/bootstrap": "^10.1.5",
+    "@libp2p/circuit-relay-v2": "^1.1.5",
+    "@libp2p/identify": "^2.1.5",
+    "@libp2p/interface": "^1.7.0",
     "@libp2p/logger": "^4.0.20",
+    "@libp2p/pubsub": "^9.0.26",
+    "@libp2p/pubsub-peer-discovery": "^10.0.2",
+    "@libp2p/tcp": "^9.1.5",
+    "@libp2p/webrtc": "^4.1.7",
+    "@libp2p/websockets": "^8.2.0",
+    "@libp2p/webtransport": "^4.1.7",
     "async-mutex": "^0.5.0",
     "bloom-filters": "^3.0.2",
     "cid": "multiformats/cid",
     "datastore-core": "^10.0.0",
+    "helia": "^4.2.5",
     "interface-blockstore": "^5.3.0",
     "interface-datastore": "^8.3.0",
+    "libp2p": "^1.9.2",
     "protons-runtime": "^5.5.0"
   }
 }

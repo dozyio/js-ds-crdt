@@ -32,3 +32,40 @@ export function dsKeyToCidV1(dsKey: Key, codec: number): CID {
   const multihashDigest = dsKeyToMultihash(dsKey);
   return CID.createV1(codec, multihashDigest); // Use the full MultihashDigest object
 }
+
+// Convert BigInt to Uint8Array in little-endian format
+export function bigintToUint8Array(bigint: bigint): Uint8Array {
+  if (bigint === BigInt(0)) {
+    return new Uint8Array([]);
+  }
+
+  let hex = bigint.toString(16);
+
+  // Ensure the string length is even (since each byte is 2 hex characters)
+  if (hex.length % 2) {
+    hex = '0' + hex;
+  }
+
+  const len = hex.length / 2;
+  const uint8Array = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    uint8Array[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+
+  // Reverse the byte order for little-endian format
+  return uint8Array.reverse();
+}
+
+// Convert ArrayBuffer to BigInt in little-endian format
+export function arrayBufferToBigInt(buffer: ArrayBufferLike): bigint {
+  const view = new DataView(buffer);
+  let result = BigInt(0);
+
+  // Iterate over the buffer in 8-byte (64-bit) chunks
+  for (let i = view.byteLength - 1; i >= 0; i--) {
+    const byte = BigInt(view.getUint8(i));
+    result = (result << BigInt(8)) | byte;
+  }
+
+  return result;
+}

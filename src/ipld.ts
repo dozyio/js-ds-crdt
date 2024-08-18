@@ -14,7 +14,7 @@ export interface DeltaOption {
 
 const { createNode } = codec
 
-class CrdtNodeGetter {
+export class CrdtNodeGetter {
   private readonly blockstore: Blockstore;
 
   constructor(blockstore: Blockstore) {
@@ -104,11 +104,5 @@ class CrdtNodeGetter {
     }
 
     return createNode(delta.Delta.encode(d), links)
-
-    // const block = await Block.encode({ value, codec, hasher })
-    //
-    // return Block.decode({ bytes: block, codec, hasher })
   }
 }
-
-export { CrdtNodeGetter };

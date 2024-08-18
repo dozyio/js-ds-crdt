@@ -1,7 +1,7 @@
 import { MemoryDatastore } from 'datastore-core/memory';
 import { Key } from 'interface-datastore';
-import { CRDTSet } from './set';
-import { delta } from './pb/delta';
+import { CRDTSet } from '../src/set';
+import { delta } from '../src/pb/delta';
 import { logger } from '@libp2p/logger';
 
 describe('CRDTSet', () => {
