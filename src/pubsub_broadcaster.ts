@@ -1,17 +1,22 @@
-import { gossipsub } from '@chainsafe/libp2p-gossipsub';
-import { noise } from '@chainsafe/libp2p-noise';
-import { yamux } from '@chainsafe/libp2p-yamux';
-import { bootstrap } from '@libp2p/bootstrap';
-import { circuitRelayTransport } from '@libp2p/circuit-relay-v2';
-import { identify, type Identify } from '@libp2p/identify';
-import { type Libp2p, type SignedMessage, type Message, type PubSub } from '@libp2p/interface';
-import { pubsubPeerDiscovery } from '@libp2p/pubsub-peer-discovery';
-import { tcp } from '@libp2p/tcp';
-import { webRTC, webRTCDirect } from '@libp2p/webrtc';
-import { webSockets } from '@libp2p/websockets';
-import { webTransport } from '@libp2p/webtransport';
-import { MemoryDatastore } from 'datastore-core';
-import { createLibp2p } from 'libp2p';
+import { gossipsub } from '@chainsafe/libp2p-gossipsub'
+import { noise } from '@chainsafe/libp2p-noise'
+import { yamux } from '@chainsafe/libp2p-yamux'
+import { bootstrap } from '@libp2p/bootstrap'
+import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
+import { identify, type Identify } from '@libp2p/identify'
+import {
+  type Libp2p,
+  type SignedMessage,
+  type Message,
+  type PubSub,
+} from '@libp2p/interface'
+import { pubsubPeerDiscovery } from '@libp2p/pubsub-peer-discovery'
+import { tcp } from '@libp2p/tcp'
+import { webRTC, webRTCDirect } from '@libp2p/webrtc'
+import { webSockets } from '@libp2p/websockets'
+import { webTransport } from '@libp2p/webtransport'
+import { MemoryDatastore } from 'datastore-core'
+import { createLibp2p } from 'libp2p'
 import { sha256 } from 'multiformats/hashes/sha2'
 
 export type Libp2pType = Libp2p<{
@@ -19,20 +24,18 @@ export type Libp2pType = Libp2p<{
   identify: Identify
 }>
 
-
 export class PubSubBroadcaster {
-  public libp2p: Libp2pType;
-  private topic: string;
+  public libp2p: Libp2pType
+  private topic: string
 
   // Constructor
   constructor(libp2p: Libp2pType, topic: string) {
-    this.libp2p = libp2p;
-    this.topic = topic;
+    this.libp2p = libp2p
+    this.topic = topic
   }
 
   // Static method to create a new instance of PubSubBroadcaster
   public static async create(topic: string): Promise<PubSubBroadcaster> {
-
     const libp2p = await createLibp2p({
       addresses: {
         listen: [
@@ -79,12 +82,14 @@ export class PubSubBroadcaster {
         bootstrap({
           // multiaddr/p2p/peer id
           // list: 'bootstrapAddrs,
-          list: ["/ip4/192.168.1.3/tcp/50138/p2p/12D3KooWEkgRTTXGsmFLBembMHxVPDcidJyqFcrqbm9iBE1xhdXq"],
+          list: [
+            '/ip4/192.168.1.3/tcp/50138/p2p/12D3KooWEkgRTTXGsmFLBembMHxVPDcidJyqFcrqbm9iBE1xhdXq',
+          ],
         }),
         pubsubPeerDiscovery({
           interval: 5_000,
           listenOnly: false,
-          topics: ['peer-discovery']
+          topics: ['peer-discovery'],
         }),
       ],
       services: {
@@ -109,22 +114,24 @@ export class PubSubBroadcaster {
       datastore: new MemoryDatastore(),
     })
 
-
-    return new PubSubBroadcaster(libp2p, topic);
+    return new PubSubBroadcaster(libp2p, topic)
   }
 
   // Broadcast publishes some data.
   public async broadcast(data: Uint8Array): Promise<void> {
-    this.libp2p.services.pubsub.publish(this.topic, data);
+    this.libp2p.services.pubsub.publish(this.topic, data)
   }
 
   public setHandler(handler: (data: Uint8Array) => void): void {
-    this.libp2p.services.pubsub.addEventListener('message', (evt: CustomEvent<Message>) => {
-      console.log('evt', evt);
-      const message = evt.detail;
-      const data = message.data; // assuming message.data is the Uint8Array
-      handler(data);
-    });
+    this.libp2p.services.pubsub.addEventListener(
+      'message',
+      (evt: CustomEvent<Message>) => {
+        console.log('evt', evt)
+        const message = evt.detail
+        const data = message.data // assuming message.data is the Uint8Array
+        handler(data)
+      },
+    )
   }
 
   // public setHandler(handler: (data: Uint8Array) => void): void {

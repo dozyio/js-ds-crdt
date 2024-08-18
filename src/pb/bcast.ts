@@ -4,7 +4,14 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-boolean-literal-compare */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 
-import { type Codec, decodeMessage, type DecodeOptions, encodeMessage, MaxLengthError, message } from 'protons-runtime'
+import {
+  type Codec,
+  decodeMessage,
+  type DecodeOptions,
+  encodeMessage,
+  MaxLengthError,
+  message,
+} from 'protons-runtime'
 import { alloc as uint8ArrayAlloc } from 'uint8arrays/alloc'
 import type { Uint8ArrayList } from 'uint8arraylist'
 
@@ -20,51 +27,61 @@ export namespace bcast {
 
     export const codec = (): Codec<CRDTBroadcast> => {
       if (_codec == null) {
-        _codec = message<CRDTBroadcast>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
-
-          if (obj.Heads != null) {
-            for (const value of obj.Heads) {
-              w.uint32(10)
-              bcast.Head.codec().encode(value, w)
+        _codec = message<CRDTBroadcast>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
             }
-          }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {
-            Heads: []
-          }
+            if (obj.Heads != null) {
+              for (const value of obj.Heads) {
+                w.uint32(10)
+                bcast.Head.codec().encode(value, w)
+              }
+            }
 
-          const end = length == null ? reader.len : reader.pos + length
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {
+              Heads: [],
+            }
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
+            const end = length == null ? reader.len : reader.pos + length
 
-            switch (tag >>> 3) {
-              case 1: {
-                if (opts.limits?.Heads != null && obj.Heads.length === opts.limits.Heads) {
-                  throw new MaxLengthError('Decode error - map field "Heads" had too many elements')
+            while (reader.pos < end) {
+              const tag = reader.uint32()
+
+              switch (tag >>> 3) {
+                case 1: {
+                  if (
+                    opts.limits?.Heads != null &&
+                    obj.Heads.length === opts.limits.Heads
+                  ) {
+                    throw new MaxLengthError(
+                      'Decode error - map field "Heads" had too many elements',
+                    )
+                  }
+
+                  obj.Heads.push(
+                    bcast.Head.codec().decode(reader, reader.uint32(), {
+                      limits: opts.limits?.Heads$,
+                    }),
+                  )
+                  break
                 }
-
-                obj.Heads.push(bcast.Head.codec().decode(reader, reader.uint32(), {
-                  limits: opts.limits?.Heads$
-                }))
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -74,7 +91,10 @@ export namespace bcast {
       return encodeMessage(obj, CRDTBroadcast.codec())
     }
 
-    export const decode = (buf: Uint8Array | Uint8ArrayList, opts?: DecodeOptions<CRDTBroadcast>): CRDTBroadcast => {
+    export const decode = (
+      buf: Uint8Array | Uint8ArrayList,
+      opts?: DecodeOptions<CRDTBroadcast>,
+    ): CRDTBroadcast => {
       return decodeMessage(buf, CRDTBroadcast.codec(), opts)
     }
   }
@@ -88,43 +108,46 @@ export namespace bcast {
 
     export const codec = (): Codec<Head> => {
       if (_codec == null) {
-        _codec = message<Head>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
+        _codec = message<Head>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
+            }
 
-          if ((obj.Cid != null && obj.Cid.byteLength > 0)) {
-            w.uint32(10)
-            w.bytes(obj.Cid)
-          }
+            if (obj.Cid != null && obj.Cid.byteLength > 0) {
+              w.uint32(10)
+              w.bytes(obj.Cid)
+            }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {
-            Cid: uint8ArrayAlloc(0)
-          }
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {
+              Cid: uint8ArrayAlloc(0),
+            }
 
-          const end = length == null ? reader.len : reader.pos + length
+            const end = length == null ? reader.len : reader.pos + length
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
+            while (reader.pos < end) {
+              const tag = reader.uint32()
 
-            switch (tag >>> 3) {
-              case 1: {
-                obj.Cid = reader.bytes()
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+              switch (tag >>> 3) {
+                case 1: {
+                  obj.Cid = reader.bytes()
+                  break
+                }
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -134,7 +157,10 @@ export namespace bcast {
       return encodeMessage(obj, Head.codec())
     }
 
-    export const decode = (buf: Uint8Array | Uint8ArrayList, opts?: DecodeOptions<Head>): Head => {
+    export const decode = (
+      buf: Uint8Array | Uint8ArrayList,
+      opts?: DecodeOptions<Head>,
+    ): Head => {
       return decodeMessage(buf, Head.codec(), opts)
     }
   }
@@ -143,32 +169,35 @@ export namespace bcast {
 
   export const codec = (): Codec<bcast> => {
     if (_codec == null) {
-      _codec = message<bcast>((obj, w, opts = {}) => {
-        if (opts.lengthDelimited !== false) {
-          w.fork()
-        }
+      _codec = message<bcast>(
+        (obj, w, opts = {}) => {
+          if (opts.lengthDelimited !== false) {
+            w.fork()
+          }
 
-        if (opts.lengthDelimited !== false) {
-          w.ldelim()
-        }
-      }, (reader, length, opts = {}) => {
-        const obj: any = {}
+          if (opts.lengthDelimited !== false) {
+            w.ldelim()
+          }
+        },
+        (reader, length, opts = {}) => {
+          const obj: any = {}
 
-        const end = length == null ? reader.len : reader.pos + length
+          const end = length == null ? reader.len : reader.pos + length
 
-        while (reader.pos < end) {
-          const tag = reader.uint32()
+          while (reader.pos < end) {
+            const tag = reader.uint32()
 
-          switch (tag >>> 3) {
-            default: {
-              reader.skipType(tag & 7)
-              break
+            switch (tag >>> 3) {
+              default: {
+                reader.skipType(tag & 7)
+                break
+              }
             }
           }
-        }
 
-        return obj
-      })
+          return obj
+        },
+      )
     }
 
     return _codec
@@ -178,7 +207,10 @@ export namespace bcast {
     return encodeMessage(obj, bcast.codec())
   }
 
-  export const decode = (buf: Uint8Array | Uint8ArrayList, opts?: DecodeOptions<bcast>): bcast => {
+  export const decode = (
+    buf: Uint8Array | Uint8ArrayList,
+    opts?: DecodeOptions<bcast>,
+  ): bcast => {
     return decodeMessage(buf, bcast.codec(), opts)
   }
 }

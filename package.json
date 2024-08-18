@@ -9,7 +9,9 @@
     "src",
     "dist",
     "!dist/test",
-    "!**/*.tsbuildinfo"
+    "!**/*.tsbuildinfo",
+    ".gitignore",
+    ".prettierignore"
   ],
   "exports": {
     ".": {
@@ -26,13 +28,16 @@
   },
   "scripts": {
     "test": "vitest",
-    "build": "tsc",
+    "build": "aegir build",
+    "test2": "aegir test",
+    "test:node": "aegir test --target node",
+    "test:browser": "aegir test --target browser",
     "start": "node dist/src/example/index.js",
     "clean": "aegir clean",
     "generate": "protons ./src/pb/*.proto",
     "lint": "aegir lint",
     "format": "yarn format:write",
-    "format:write": "yarn prettier --write --loglevel warn .",
+    "format:write": "yarn prettier --write --log-level warn .",
     "format:check": "yarn prettier --list-different ."
   },
   "devDependencies": {

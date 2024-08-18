@@ -1,8 +1,13 @@
-/** @type {import('prettier').Options} */
-module.exports = {
+/**
+ * @see https://prettier.io/docs/en/configuration.html
+ * @type {import("prettier").Config}
+ */
+const config = {
   trailingComma: 'all',
   singleQuote: true,
   tabWidth: 2,
   useTabs: false,
-  semi: false
+  semi: false,
 }
+
+export default config
