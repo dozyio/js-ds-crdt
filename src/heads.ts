@@ -48,25 +48,6 @@ class Heads {
     });
   }
 
-  // public async replace(h: CID, c: CID, height: number): Promise<void> {
-  //   let store = this.store;
-  //
-  //   if ('batch' in store && typeof store.batch === 'function') {
-  //     const batch = store.batch();
-  //     await this.write(store, c, height);
-  //     await this.delete(store, h);
-  //     await batch.commit();
-  //   } else {
-  //     await this.write(store, c, height);
-  //     await this.delete(store, h);
-  //   }
-  //
-  //   await this.cacheMux.runExclusive(async () => {
-  //     delete this.cache[h.toString()];
-  //     this.cache[c.toString()] = height;
-  //   });
-  // }
-
 public async replace(h: CID, c: CID, height: number): Promise<void> {
     let store = this.store;
 
