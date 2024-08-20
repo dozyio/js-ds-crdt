@@ -1,6 +1,8 @@
+/* eslint-disable no-console */
 import { type Identify } from '@libp2p/identify'
 import {
   type Libp2p,
+  type Logger,
   type Message,
   type PeerId,
   type PubSub
@@ -14,50 +16,51 @@ export type Libp2pType = Libp2p<{
 export class PubSubBroadcaster {
   public libp2p: Libp2pType
   private readonly topic: string
+  private readonly logger: Logger
 
   // Constructor
-  constructor (libp2p: Libp2pType, topic: string) {
-    this.libp2p = libp2p
+  constructor (libp2p: Libp2pType, topic: string, logger: Logger) {
+    this.logger = logger
     this.topic = topic
+    this.libp2p = libp2p
   }
 
   // Broadcast publishes some data.
   public async broadcast (data: Uint8Array): Promise<void> {
-    console.log('broadcasting data', data)
+    this.logger('broadcasting data', data)
     const res = await this.libp2p.services.pubsub.publish(this.topic, data)
-    console.log('pubsub publish res', res)
+    this.logger('pubsub publish res', res)
   }
 
   public setHandler (handler: (data: Uint8Array) => void): void {
-    console.log('setting pubsub handler')
+    this.logger('setting pubsub handler')
     this.libp2p.services.pubsub.addEventListener(
       'message',
       (evt: CustomEvent<Message>) => {
         // eslint-disable-next-line no-console
-        console.log('evt', evt.detail)
+        this.logger('evt', evt)
         const message = evt.detail
         const data = message.data // assuming message.data is the Uint8Array
         handler(data)
       }
     )
 
-    console.log('adding subscription change listener')
-    this.libp2p.services.pubsub.addEventListener('subscription-change', this.onSubscriptionChange)
+    // this.logger('adding subscription change listener')
+    // this.libp2p.services.pubsub.addEventListener('subscription-change', this.onSubscriptionChange)
 
-    console.log('subscribing to topic:', this.topic)
+    this.logger('subscribing to topic:', this.topic)
     this.libp2p.services.pubsub.subscribe(this.topic)
   }
 
-  private onSubscriptionChange (): void {
-    console.log('pubsub subscription change')
-    console.log('osc subscribers', this.getSubscribers())
-  }
+  // private onSubscriptionChange (): void {
+  //   this.logger('pubsub subscription change')
+  // }
 
   public getSubscribers (): PeerId[] {
     if (this.libp2p !== undefined) {
       return this.libp2p.services.pubsub.getSubscribers(this.topic)
     } else {
-      console.log('libp2p is undefined')
+      this.logger.error('libp2p is undefined')
     }
     return []
   }

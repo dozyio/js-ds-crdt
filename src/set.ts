@@ -64,8 +64,7 @@ export class CRDTSet {
       nTombs++
     }
 
-    this.logger.trace(`Tombstones have bloomed: ${nTombs} tombs.`)
-    console.log(`Tombstones have bloomed: ${nTombs} tombs.`)
+    this.logger(`Tombstones have bloomed: ${nTombs} tombs.`)
   }
 
   // Add a new element

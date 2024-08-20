@@ -85,10 +85,7 @@ export class Heads {
     // view.setUint32(0, height, true);
 
     const key = this.key(c) // Now includes the namespace
-    this.logger.trace(
-      `Writing key: ${key.toString()}, CID: ${c.toString()}, height: ${height}`
-    )
-    console.log(
+    this.logger(
       `Writing key: ${key.toString()}, CID: ${c.toString()}, height: ${height}`
     )
 
@@ -97,14 +94,12 @@ export class Heads {
 
   private async delete (store: Datastore, c: CID): Promise<void> {
     const key = this.key(c)
-    this.logger.trace(`Deleting key: ${key.toString()}, CID: ${c.toString()}`)
-    console.log(`Deleting key: ${key.toString()}, CID: ${c.toString()}`)
+    this.logger(`Deleting key: ${key.toString()}, CID: ${c.toString()}`)
     await store.delete(key)
   }
 
   public async add (c: CID, height: bigint): Promise<void> {
-    this.logger.trace(`Adding new DAG head: ${c} (height: ${height})`)
-    console.log(`Adding new DAG head: ${c} (height: ${height})`)
+    this.logger(`Adding new DAG head: ${c} (height: ${height})`)
     await this.write(this.store, c, height)
 
     await this.cacheMux.runExclusive(async () => {
@@ -144,8 +139,7 @@ export class Heads {
         const height = arrayBufferToBigInt(r.value.buffer)
         this.cache[headCid.toString()] = height
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error(`Failed to decode key: ${multibaseStr}`, error)
+        this.logger.error(`Failed to decode key: ${multibaseStr}`, error)
         throw error
       }
     }

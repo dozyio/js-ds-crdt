@@ -1,6 +1,6 @@
 import { createNode } from '@ipld/dag-pb'
 import * as codec from '@ipld/dag-pb'
-import { logger, type Logger } from '@libp2p/logger'
+import { prefixLogger } from '@libp2p/logger'
 import { Mutex } from 'async-mutex'
 import {
   Key,
@@ -10,6 +10,7 @@ import {
 import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
+import debug from 'weald'
 import { Heads } from './heads'
 import { CrdtNodeGetter } from './ipld'
 import * as bpb from './pb/bcast'
@@ -18,7 +19,7 @@ import { CRDTSet } from './set'
 import { multihashToDsKey } from './utils'
 import type * as dagPb from '@ipld/dag-pb'
 import type { Identify } from '@libp2p/identify'
-import type { Libp2p, PeerId, PubSub, ServiceMap } from '@libp2p/interface'
+import type { ComponentLogger, Libp2p, Logger, PeerId, PubSub, ServiceMap } from '@libp2p/interface'
 import type { HeliaLibp2p } from 'helia'
 
 const headsNs = 'h' // heads
@@ -42,7 +43,7 @@ interface Broadcaster {
 // }
 
 interface Options {
-  logger: Logger
+  loggerPrefix: string // ComponentLogger
   rebroadcastInterval: number
   putHook?(key: string, value: Uint8Array): void
   deleteHook?(key: string): void
@@ -67,7 +68,7 @@ export interface MyLibp2pServices extends ServiceMap {
 
 export function defaultOptions (): Options {
   return {
-    logger: logger('crdt'),
+    loggerPrefix: 'crdt',
     rebroadcastInterval: 5000, // 5 seconds in milliseconds
     numWorkers: 5,
     dagSyncerTimeout: 300000, // 5 minutes in milliseconds
@@ -83,6 +84,7 @@ export function defaultOptions (): Options {
 export class Datastore {
   private readonly ctx: AbortController
   public options: Options
+  private readonly prefixedLogger: ComponentLogger
   private readonly logger: Logger
   public readonly store: DSDatastore
   public readonly namespace: Key
@@ -106,7 +108,8 @@ export class Datastore {
   ) {
     this.ctx = new AbortController()
     this.options = options ?? defaultOptions()
-    this.logger = this.options.logger
+    this.prefixedLogger = prefixLogger(this.options.loggerPrefix)
+    this.logger = this.prefixedLogger.forComponent('crdt')
     this.store = store
     this.namespace = namespace
     this.dagService = dagSyncer
@@ -116,18 +119,23 @@ export class Datastore {
     this.sendJobs = []
     this.queuedChildren = new CidSafeSet()
 
+    debug.enable(`${this.options.loggerPrefix}*`) // 'crdt*,*crdt:trace')
+    // this.logger('test')
+    // this.logger.error('error test')
+    // this.logger.trace('trace test')
+
     // Initialize the CRDTSet and heads
     this.set = new CRDTSet(
       store,
       namespace.child(new Key(setNs)),
-      this.logger,
+      this.prefixedLogger.forComponent('set'),
       this.options.putHook,
       this.options.deleteHook
     )
     this.heads = new Heads(
       store,
       namespace.child(new Key(headsNs)),
-      this.logger
+      this.prefixedLogger.forComponent('heads')
     )
 
     this.handleNext()
@@ -141,11 +149,10 @@ export class Datastore {
 
   private async scheduleDagWorker (): Promise<void> {
     try {
-      console.log('running dagWorker')
+      this.logger('running dagWorker')
       await this.dagWorker()
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error in dagWorker:', err)
+      this.logger.error('Error in dagWorker:', err)
     } finally {
       setTimeout(() => {
         void this.scheduleDagWorker()
@@ -155,11 +162,10 @@ export class Datastore {
 
   private async scheduleSendJobWorker (): Promise<void> {
     try {
-      console.log('running sendJobWorker')
+      this.logger('running sendJobWorker')
       await this.sendJobWorker()
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error in sendJobWorker:', err)
+      this.logger.error('Error in sendJobWorker:', err)
     } finally {
       setTimeout(() => {
         void this.scheduleSendJobWorker()
@@ -169,11 +175,11 @@ export class Datastore {
 
   private async scheduleRebroadcast (): Promise<void> {
     try {
-      console.log('running rebroadcast')
+      this.logger('running rebroadcast')
       await this.rebroadcast()
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('Error in rebroadcast:', err)
+      this.logger.error('Error in rebroadcast:', err)
     } finally {
       setTimeout(() => {
         void this.scheduleRebroadcast()
@@ -183,11 +189,10 @@ export class Datastore {
 
   private async scheduleRepair (): Promise<void> {
     try {
-      console.log('running repair')
+      this.logger('running repair')
       await this.repair()
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error in repair:', err)
+      this.logger.error('Error in repair:', err)
     } finally {
       setTimeout(() => {
         void this.scheduleRepair()
@@ -197,11 +202,10 @@ export class Datastore {
 
   private async scheduleLogStats (): Promise<void> {
     try {
-      console.log('running logStats')
+      this.logger('running logStats')
       await this.logStats()
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error in logStats:', err)
+      this.logger.error('Error in logStats:', err)
     } finally {
       setTimeout(() => {
         void this.scheduleLogStats()
@@ -213,8 +217,7 @@ export class Datastore {
     // if (!this.broadcaster) return // offline
     this.broadcaster.setHandler(async (data: Uint8Array) => {
       try {
-        this.logger.trace('Handling incoming pubsub message')
-        console.log('Handling incoming pubsub message')
+        this.logger('Handling incoming pubsub message')
         const bCastHeads = await this.decodeBroadcast(data)
 
         const processHead = async (c: CID): Promise<void> => {
@@ -222,17 +225,16 @@ export class Datastore {
             await this.handleBlock(c)
           } catch (err) {
             this.logger.error(`error processing new head: ${err}`)
-            console.error(`error processing new head: ${err}`)
           }
         }
 
         const curHeadCount = await this.heads.len()
-        console.log('curHeadCount', curHeadCount)
+        this.logger('curHeadCount', curHeadCount)
         if (curHeadCount === 0) {
-          const dg = new CrdtNodeGetter(this.dagService.blockstore)
+          const dg = new CrdtNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
           for (const head of bCastHeads) {
             const prio = await dg.getPriority(head)
-            console.log('prio', prio)
+            this.logger('prio', prio)
             await this.heads.add(head, prio)
           }
         }
@@ -250,7 +252,6 @@ export class Datastore {
           return
         }
         this.logger.error(err)
-        console.error(err)
       }
     })
   }
@@ -307,7 +308,7 @@ export class Datastore {
         )
       } catch (error) {
         this.logger.error(error)
-        await this.MarkDirty()
+        await this.markDirty()
         job.session.release()
       }
     }
@@ -350,7 +351,7 @@ export class Datastore {
     const start = Date.now()
 
     const heads = await this.heads.list()
-    const getter = new CrdtNodeGetter(this.dagService.blockstore)
+    const getter = new CrdtNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
 
     const nodes: Array<{ head: CID, node: CID }> = []
     const queued = new Set<string>()
@@ -392,36 +393,36 @@ export class Datastore {
     }
 
     this.logger.trace(`DAG repair finished. Took ${Date.now() - start} ms`)
-    await this.MarkClean()
+    await this.markClean()
   }
 
   private dirtyKey (): Key {
     return this.namespace.child(new Key(dirtyBitKey))
   }
 
-  public async MarkDirty (): Promise<void> {
+  public async markDirty (): Promise<void> {
     this.logger.error('Marking datastore as dirty')
     await this.store.put(this.dirtyKey(), new Uint8Array())
   }
 
-  public async IsDirty (): Promise<boolean> {
+  public async isDirty (): Promise<boolean> {
     return this.store.has(this.dirtyKey())
   }
 
-  public async MarkClean (): Promise<void> {
-    this.logger.error('Marking datastore as clean')
+  public async markClean (): Promise<void> {
+    this.logger('Marking datastore as clean')
     await this.store.delete(this.dirtyKey())
   }
 
-  private async logStats (): Promise<void> {
+  public async logStats (): Promise<void> {
     const interval = 5 * 60 * 1000 // 5 minutes
 
     while (!this.ctx.signal.aborted) {
       await new Promise((resolve) => setTimeout(resolve, interval))
 
       const heads = await this.heads.list()
-      this.logger.trace(
-        `Number of heads: ${heads.heads.length}. Max height: ${heads.maxHeight}. Queued jobs: ${this.jobQueue.length}. Dirty: ${await this.IsDirty()}`
+      this.logger(
+        `Number of heads: ${heads.heads.length}. Max height: ${heads.maxHeight}. Queued jobs: ${this.jobQueue.length}. Dirty: ${await this.isDirty()}`
       )
     }
   }
@@ -467,16 +468,17 @@ export class Datastore {
     if (cids.length === 0) return
 
     const bcastBytes = this.encodeBroadcast(cids)
-    this.logger.trace(`Broadcasting ${cids}`)
+    this.logger(`Broadcasting ${cids}`)
 
     await this.broadcaster.broadcast(bcastBytes)
   }
 
   private async handleBlock (c: CID): Promise<void> {
-    console.log('handling block', c.toString())
+    this.logger('handling block', c.toString())
     const isProcessed = await this.isProcessed(c)
     if (isProcessed) {
-      this.logger.trace(`${c} is known. Skip walking tree`)
+      // this.logger.trace(`${c} is known. Skip walking tree`)
+      this.logger(`${c} is known. Skip walking tree`)
       return
     }
 
@@ -484,7 +486,8 @@ export class Datastore {
   }
 
   public async handleBranch (head: CID, c: CID): Promise<void> {
-    const dg = new CrdtNodeGetter(this.dagService.blockstore)
+    this.logger('handling branch', head.toString(), c.toString())
+    const dg = new CrdtNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
     const session = new Mutex()
 
     await this.sendNewJobs(session, dg, head, 0n, [c])
@@ -497,9 +500,13 @@ export class Datastore {
     rootPrio: bigint,
     children: CID[]
   ): Promise<void> {
-    if (children.length === 0) return
+    this.logger('sending new jobs', root.toString(), rootPrio.toString(), children.map(c => c.toString()))
+    if (children.length === 0) {
+      this.logger('children.length === 0')
+      return
+    }
 
-    const goodDeltas = new Map<CID, boolean>()
+    const goodDeltas = new Set<string>()
 
     for await (const deltaOpt of ng.getDeltas(children)) {
       if (deltaOpt.err !== null && deltaOpt.err !== undefined) {
@@ -522,7 +529,8 @@ export class Datastore {
       )
       const block = await Block.encode({ value, codec, hasher })
 
-      goodDeltas.set(block.cid, true)
+      goodDeltas.add(block.cid.toString())
+      this.logger('goodDeltas.set', block.cid.toString())
 
       const job = new DagJob(
         session,
@@ -537,8 +545,8 @@ export class Datastore {
     }
 
     for (const child of children) {
-      if (!goodDeltas.has(child)) {
-        this.logger.trace('GetDeltas did not include all children')
+      if (!goodDeltas.has(child.toString())) {
+        this.logger.error('GetDeltas did not include all children', child.toString())
         this.queuedChildren.remove(child)
       }
     }
@@ -556,36 +564,37 @@ export class Datastore {
   }
 
   private async markProcessed (c: CID): Promise<void> {
-    console.log('marking processed', c.toString())
+    this.logger('marking processed', c.toString())
     const key = this.processedBlockKey(c)
     await this.store.put(key, new Uint8Array())
   }
 
   public async get (key: Key): Promise<Uint8Array | null> {
-    console.log('getting key', key.toString())
+    this.logger('getting key', key.toString())
     return this.set.element(key.toString())
   }
 
   public async put (key: Key, value: Uint8Array): Promise<void> {
-    console.log('putting key', key.toString())
+    this.logger('putting key', key.toString())
     const delta = this.set.add(key.toString(), value)
     await this.publish(delta)
   }
 
   public async delete (key: Key): Promise<void> {
+    this.logger('deleting key', key.toString())
     const delta = await this.set.remove(key.toString())
     if (delta.tombstones.length === 0) return
     await this.publish(delta)
   }
 
   private async publish (delta: dpb.delta.Delta): Promise<void> {
-    console.log('publishing delta', delta)
+    this.logger('publishing delta', delta)
     const c = await this.addDAGNode(delta)
     await this.broadcast([c])
   }
 
   private async addDAGNode (delta: dpb.delta.Delta): Promise<CID> {
-    console.log('adding dag node')
+    this.logger('adding dag node')
     const heads = await this.heads.list()
     const height = heads.maxHeight + 1n
 
@@ -611,6 +620,7 @@ export class Datastore {
     height: bigint,
     delta: dpb.delta.Delta
   ): Promise<dagPb.PBNode> {
+    this.logger('putting block', height.toString())
     delta.priority = height
 
     const links: codec.PBLink[] = []
@@ -630,7 +640,7 @@ export class Datastore {
     delta: dpb.delta.Delta,
     node: dagPb.PBNode
   ): Promise<CID[]> {
-    console.log('processing node')
+    this.logger('processing node')
     const value = createNode(node.Data ?? new Uint8Array(), node.Links)
     const block = await Block.encode({ value, codec, hasher })
 
@@ -647,7 +657,7 @@ export class Datastore {
       // Remove from the set that has the children which are queued for processing.
       this.queuedChildren.remove(block.cid)
 
-      this.logger.error(
+      this.logger(
         `Merged delta from node ${current} (priority: ${delta.priority})`
       )
 
@@ -700,7 +710,7 @@ export class Datastore {
         children.push(child)
       }
 
-      console.log('children', children)
+      this.logger('children', children)
       return children
     } catch (err) {
       this.logger.error(`Error processing node ${current}: ${err}`)
@@ -728,15 +738,15 @@ export class Datastore {
     }
   }
 
-  public async Close (): Promise<void> {
-    if (await this.IsDirty()) {
+  public async close (): Promise<void> {
+    if (await this.isDirty()) {
       this.logger.error('Datastore closed while marked as dirty')
     }
   }
 
-  public async PrintDAG (): Promise<void> {
+  public async printDAG (): Promise<void> {
     const heads = await this.heads.list()
-    const getter = new CrdtNodeGetter(this.dagService.blockstore)
+    const getter = new CrdtNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
 
     const set = new Set<string>()
 
@@ -754,8 +764,7 @@ export class Datastore {
     const padding = ' '.repeat(depth)
 
     if (set.has(from.toString())) {
-      // eslint-disable-next-line no-console
-      console.log(`${padding}...`)
+      this.logger(`${padding}...`)
       return
     }
 
@@ -780,8 +789,7 @@ export class Datastore {
     }
 
     line += '}:'
-    // eslint-disable-next-line no-console
-    console.log(line)
+    this.logger(line)
 
     for (const link of node.Links) {
       await this.printDAGRec(link.Hash, depth + 1, getter, set)

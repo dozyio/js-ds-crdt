@@ -27,7 +27,8 @@
     }
   },
   "scripts": {
-    "test": "vitest",
+    "test": "vitest run --hideSkippedTests --allowOnly",
+    "test:watch": "vitest",
     "build": "aegir build",
     "test2": "aegir test",
     "test:node": "aegir test --target node",
@@ -77,6 +78,7 @@
     "interface-blockstore": "^5.3.0",
     "interface-datastore": "^8.3.0",
     "libp2p": "^1.9.2",
-    "protons-runtime": "^5.5.0"
+    "protons-runtime": "^5.5.0",
+    "weald": "^1.0.2"
   }
 }

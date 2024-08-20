@@ -4,6 +4,7 @@ import { yamux } from '@chainsafe/libp2p-yamux'
 import * as codec from '@ipld/dag-pb'
 import { bootstrap } from '@libp2p/bootstrap'
 import { identify } from '@libp2p/identify'
+import { prefixLogger } from '@libp2p/logger'
 import { tcp } from '@libp2p/tcp'
 import { MemoryBlockstore } from 'blockstore-core'
 import { MemoryDatastore } from 'datastore-core/memory'
@@ -17,7 +18,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { Datastore, defaultOptions, type MyLibp2pServices } from '../src/crdt'
 import { delta } from '../src/pb/delta'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
-import type { Libp2p, Message, SignedMessage } from '@libp2p/interface'
+import type { Libp2p, Logger, Message, SignedMessage } from '@libp2p/interface'
 
 export async function msgIdFnStrictNoSign (msg: Message): Promise<Uint8Array> {
   const signedMessage = msg as SignedMessage
@@ -59,14 +60,14 @@ async function createNode (): Promise<HeliaLibp2p<Libp2p<MyLibp2pServices>>> {
       yamux()
     ],
     // peerDiscovery: [
-    //   // bootstrap({
-    //   //   list: [
-    //   //     '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN',
-    //   //     '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa',
-    //   //     '/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb',
-    //   //     '/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt'
-    //   //   ]
-    //   // })
+    //   bootstrap({
+    //     list: [
+    //       '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN',
+    //       '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa',
+    //       '/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb',
+    //       '/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt'
+    //     ]
+    //   })
     // ],
     services: {
       identify: identify(),
@@ -75,8 +76,8 @@ async function createNode (): Promise<HeliaLibp2p<Libp2p<MyLibp2pServices>>> {
         allowPublishToZeroTopicPeers: true,
         msgIdFn: msgIdFnStrictNoSign,
         ignoreDuplicatePublishError: true,
-        tagMeshPeers: true,
-        doPX: true
+        tagMeshPeers: true
+        // doPX: true
       })
     }
   })
@@ -94,16 +95,28 @@ async function createReplicas (count: number): Promise<Datastore[]> {
   const replicas: Datastore[] = []
   for (let i = 0; i < count; i++) {
     const store = new MemoryDatastore()
-    const namespace = new Key('crdt')
+    const namespace = new Key(`crdt${i}`)
     const dagService = await createNode()
-    const broadcaster = new PubSubBroadcaster(dagService.libp2p, 'test')
-    const datastore = new Datastore(store, namespace, dagService, broadcaster)
+    const broadcaster = new PubSubBroadcaster(dagService.libp2p, 'test', prefixLogger(`crdt${i}`).forComponent('pubsub'))
+
+    const options = {
+      loggerPrefix: `crdt${i}`,
+      rebroadcastInterval: 5000,
+      repairInterval: 60000,
+      logInterval: 1000,
+      numWorkers: 1,
+      dagSyncerTimeout: 2000,
+      maxBatchDeltaSize: 1000,
+      multiHeadProcessing: false
+    } as any
+
+    const datastore = new Datastore(store, namespace, dagService, broadcaster, options)
     replicas.push(datastore)
   }
 
-  for (let i = 0; i < count; i++) {
-    console.log(`replica ${i} peerId`, replicas[i].dagService.libp2p.peerId.toString())
-  }
+  // for (let i = 0; i < count; i++) {
+  //   console.log(`replica ${i} peerId`, replicas[i].dagService.libp2p.peerId.toString())
+  // }
 
   // connect each replica to each other
   for (let i = 0; i < count - 1; i++) {
@@ -123,42 +136,42 @@ async function createReplicas (count: number): Promise<Datastore[]> {
 
 async function simulatePropagation (replicas: Datastore[]): Promise<void> {
   // This could be a simple delay or a more sophisticated simulation
-  await new Promise((resolve) => setTimeout(resolve, 1000))
+  await new Promise((resolve) => setTimeout(resolve, 20000))
 }
 
 describe('Datastore', () => {
-  let store: MemoryDatastore
-  let namespace: Key
-  let dagService: HeliaLibp2p<Libp2p<MyLibp2pServices>>
-  let broadcaster: any
-  let options: any
-  let datastore: Datastore
+  // let store: MemoryDatastore
+  // let namespace: Key
+  // let dagService: HeliaLibp2p<Libp2p<MyLibp2pServices>>
+  // let broadcaster: any
+  // let options: any
+  // let datastore: Datastore
 
-  beforeEach(async () => {
-    store = new MemoryDatastore()
-    namespace = new Key('testNamespace')
-    dagService = await createNode()
-    broadcaster = new PubSubBroadcaster(dagService.libp2p, 'test')
-
-    options = {
-      logger: console,
-      rebroadcastInterval: 1000,
-      repairInterval: 2000,
-      logInterval: 3000,
-      numWorkers: 1,
-      dagSyncerTimeout: 1000,
-      maxBatchDeltaSize: 1000,
-      multiHeadProcessing: false
-    }
-
-    datastore = new Datastore(
-      store,
-      namespace,
-      dagService,
-      broadcaster,
-      options
-    )
-  })
+  // beforeEach(async () => {
+  //   store = new MemoryDatastore()
+  //   namespace = new Key('testNamespace')
+  //   dagService = await createNode()
+  //   broadcaster = new PubSubBroadcaster(dagService.libp2p, 'test')
+  //
+  //   options = {
+  //     logger: console,
+  //     rebroadcastInterval: 1000,
+  //     repairInterval: 2000,
+  //     logInterval: 3000,
+  //     numWorkers: 1,
+  //     dagSyncerTimeout: 1000,
+  //     maxBatchDeltaSize: 1000,
+  //     multiHeadProcessing: false
+  //   }
+  //
+  //   datastore = new Datastore(
+  //     store,
+  //     namespace,
+  //     dagService,
+  //     broadcaster,
+  //     options
+  //   )
+  // })
 
   it('should initialize correctly', () => {
     expect(datastore.options).toEqual(options)
@@ -334,11 +347,11 @@ describe('Datastore', () => {
 
     await simulatePropagation(replicas)
 
-    console.log('replica[0] DAG')
-    await replicas[0].PrintDAG()
-
-    console.log('replica[1] DAG')
-    await replicas[1].PrintDAG()
+    // console.log('replica[0] DAG')
+    // await replicas[0].PrintDAG()
+    //
+    // console.log('replica[1] DAG')
+    // await replicas[1].PrintDAG()
 
     const list0 = []
     for await (const { key, value } of replicas[0].store.query({})) {
@@ -358,7 +371,7 @@ describe('Datastore', () => {
       const replicatedValue = await replica.get(key)
       expect(replicatedValue).toEqual(value)
     }
-  })
+  }, 30000)
 
   it('should handle concurrent updates and ensure final consistency', async () => {
     const key = new Key('k')

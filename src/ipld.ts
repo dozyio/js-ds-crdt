@@ -1,8 +1,10 @@
+/* eslint-disable no-console */
 import * as codec from '@ipld/dag-pb'
 import * as Block from 'multiformats/block'
 import { type CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { delta } from './pb/delta'
+import type { Logger } from '@libp2p/interface'
 import type { Blockstore } from 'interface-blockstore'
 import type { AbortOptions } from 'interface-store'
 
@@ -16,26 +18,28 @@ const { createNode } = codec
 
 export class CrdtNodeGetter {
   private readonly blockstore: Blockstore
+  private readonly logger: Logger
 
-  constructor (blockstore: Blockstore) {
+  constructor (blockstore: Blockstore, logger: Logger) {
     this.blockstore = blockstore
+    this.logger = logger
   }
 
   async getDelta (
     cid: CID,
     options?: AbortOptions
   ): Promise<{ node: codec.PBNode, delta: delta.Delta }> {
-    console.log('getting delta', cid.toString())
+    this.logger('getting delta', cid.toString())
     const node = await this.getNode(cid, options)
-    console.log('getDelta node', node)
+    this.logger('getDelta node', node)
     const delta = this.extractDelta(node)
     return { node, delta }
   }
 
   async getPriority (cid: CID, options?: AbortOptions): Promise<bigint> {
-    console.log('getting priority', cid.toString())
+    this.logger('getting priority', cid.toString())
     const { delta } = await this.getDelta(cid, options)
-    console.log('priority', delta.priority)
+    this.logger('priority', delta.priority)
     return delta.priority
   }
 
@@ -67,11 +71,11 @@ export class CrdtNodeGetter {
     cid: CID,
     options?: AbortOptions
   ): Promise<codec.PBNode> {
-    console.log('getting node', cid.toString())
+    this.logger('getting node', cid.toString())
     const block = await this.blockstore.get(cid, options)
-    console.log('block', block)
+    this.logger('block', block)
     const node = await Block.decode({ bytes: block, codec, hasher })
-    console.log('node', node)
+    this.logger('node', node)
 
     const links: codec.PBLink[] = []
     for (const [name, cid] of node.links()) {
