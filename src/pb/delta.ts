@@ -10,12 +10,12 @@ import {
   type DecodeOptions,
   encodeMessage,
   MaxLengthError,
-  message,
+  message
 } from 'protons-runtime'
 import { alloc as uint8ArrayAlloc } from 'uint8arrays/alloc'
 import type { Uint8ArrayList } from 'uint8arraylist'
 
-export interface delta {}
+export interface delta { }
 
 export namespace delta {
   export interface Delta {
@@ -62,7 +62,7 @@ export namespace delta {
             const obj: any = {
               elements: [],
               tombstones: [],
-              priority: 0n,
+              priority: 0n
             }
 
             const end = length == null ? reader.len : reader.pos + length
@@ -77,14 +77,14 @@ export namespace delta {
                     obj.elements.length === opts.limits.elements
                   ) {
                     throw new MaxLengthError(
-                      'Decode error - map field "elements" had too many elements',
+                      'Decode error - map field "elements" had too many elements'
                     )
                   }
 
                   obj.elements.push(
                     delta.Element.codec().decode(reader, reader.uint32(), {
-                      limits: opts.limits?.elements$,
-                    }),
+                      limits: opts.limits?.elements$
+                    })
                   )
                   break
                 }
@@ -94,14 +94,14 @@ export namespace delta {
                     obj.tombstones.length === opts.limits.tombstones
                   ) {
                     throw new MaxLengthError(
-                      'Decode error - map field "tombstones" had too many elements',
+                      'Decode error - map field "tombstones" had too many elements'
                     )
                   }
 
                   obj.tombstones.push(
                     delta.Element.codec().decode(reader, reader.uint32(), {
-                      limits: opts.limits?.tombstones$,
-                    }),
+                      limits: opts.limits?.tombstones$
+                    })
                   )
                   break
                 }
@@ -117,7 +117,7 @@ export namespace delta {
             }
 
             return obj
-          },
+          }
         )
       }
 
@@ -130,7 +130,7 @@ export namespace delta {
 
     export const decode = (
       buf: Uint8Array | Uint8ArrayList,
-      opts?: DecodeOptions<Delta>,
+      opts?: DecodeOptions<Delta>
     ): Delta => {
       return decodeMessage(buf, Delta.codec(), opts)
     }
@@ -176,7 +176,7 @@ export namespace delta {
             const obj: any = {
               key: '',
               id: '',
-              value: uint8ArrayAlloc(0),
+              value: uint8ArrayAlloc(0)
             }
 
             const end = length == null ? reader.len : reader.pos + length
@@ -205,7 +205,7 @@ export namespace delta {
             }
 
             return obj
-          },
+          }
         )
       }
 
@@ -218,7 +218,7 @@ export namespace delta {
 
     export const decode = (
       buf: Uint8Array | Uint8ArrayList,
-      opts?: DecodeOptions<Element>,
+      opts?: DecodeOptions<Element>
     ): Element => {
       return decodeMessage(buf, Element.codec(), opts)
     }
@@ -255,7 +255,7 @@ export namespace delta {
           }
 
           return obj
-        },
+        }
       )
     }
 
@@ -268,7 +268,7 @@ export namespace delta {
 
   export const decode = (
     buf: Uint8Array | Uint8ArrayList,
-    opts?: DecodeOptions<delta>,
+    opts?: DecodeOptions<delta>
   ): delta => {
     return decodeMessage(buf, delta.codec(), opts)
   }

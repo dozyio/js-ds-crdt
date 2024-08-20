@@ -1,23 +1,25 @@
-import { CID } from 'multiformats/cid'
+import { createNode } from '@ipld/dag-pb'
+import * as codec from '@ipld/dag-pb'
+import { logger, type Logger } from '@libp2p/logger'
+import { Mutex } from 'async-mutex'
 import {
   Key,
   type Datastore as DSDatastore,
-  type Batch as DSBatch,
+  type Batch as DSBatch
 } from 'interface-datastore'
-import { logger, type Logger } from '@libp2p/logger'
-import { Mutex } from 'async-mutex'
-import * as dpb from './pb/delta'
-import * as bpb from './pb/bcast'
-import { CrdtNodeGetter } from './ipld'
-import * as dagPb from '@ipld/dag-pb'
-import { Heads } from './heads'
 import * as Block from 'multiformats/block'
+import { CID } from 'multiformats/cid'
+import { sha256 as hasher } from 'multiformats/hashes/sha2'
+import { Heads } from './heads'
+import { CrdtNodeGetter } from './ipld'
+import * as bpb from './pb/bcast'
+import * as dpb from './pb/delta'
 import { CRDTSet } from './set'
 import { multihashToDsKey } from './utils'
-import { createNode } from '@ipld/dag-pb'
-import { sha256 as hasher } from 'multiformats/hashes/sha2'
-import * as codec from '@ipld/dag-pb'
-import type { Helia } from 'helia'
+import type * as dagPb from '@ipld/dag-pb'
+import type { Identify } from '@libp2p/identify'
+import type { Libp2p, PeerId, PubSub, ServiceMap } from '@libp2p/interface'
+import type { HeliaLibp2p } from 'helia'
 
 const headsNs = 'h' // heads
 const setNs = 's' // set
@@ -26,12 +28,13 @@ const dirtyBitKey = 'd' // dirty
 
 // Common errors.
 const ErrNoMoreBroadcast = new Error(
-  'receiving blocks aborted since no new blocks will be broadcasted',
+  'receiving blocks aborted since no new blocks will be broadcasted'
 )
 
 interface Broadcaster {
   broadcast(data: Uint8Array): Promise<void>
-  setHandler: (handler: (data: Uint8Array) => Promise<void>) => void
+  setHandler(handler: (data: Uint8Array) => Promise<void>): void
+  getSubscribers(): PeerId[]
 }
 
 // export interface SessionDAGService extends DAGService {
@@ -41,8 +44,8 @@ interface Broadcaster {
 interface Options {
   logger: Logger
   rebroadcastInterval: number
-  putHook?: (key: string, value: Uint8Array) => void
-  deleteHook?: (key: string) => void
+  putHook?(key: string, value: Uint8Array): void
+  deleteHook?(key: string): void
   numWorkers: number
   dagSyncerTimeout: number
   maxBatchDeltaSize: number
@@ -57,10 +60,15 @@ interface Stats {
   queuedJobs: number
 }
 
-function defaultOptions(): Options {
+export interface MyLibp2pServices extends ServiceMap {
+  identify: Identify
+  pubsub: PubSub
+}
+
+export function defaultOptions (): Options {
   return {
     logger: logger('crdt'),
-    rebroadcastInterval: 60000, // 1 minute in milliseconds
+    rebroadcastInterval: 5000, // 5 seconds in milliseconds
     numWorkers: 5,
     dagSyncerTimeout: 300000, // 5 minutes in milliseconds
     maxBatchDeltaSize: 1048576, // 1MB
@@ -68,36 +76,36 @@ function defaultOptions(): Options {
     logInterval: 60000, // 1 minute in milliseconds
     multiHeadProcessing: false,
     putHook: undefined,
-    deleteHook: undefined,
+    deleteHook: undefined
   }
 }
 
 export class Datastore {
-  private ctx: AbortController
+  private readonly ctx: AbortController
   public options: Options
-  private logger: Logger
-  private store: DSDatastore
-  private namespace: Key
-  private set: CRDTSet
-  private heads: Heads
-  private dagService: Helia
-  private broadcaster: Broadcaster
-  private seenHeads: Map<CID, boolean>
+  private readonly logger: Logger
+  public readonly store: DSDatastore
+  public readonly namespace: Key
+  private readonly set: CRDTSet
+  public readonly heads: Heads
+  public readonly dagService: HeliaLibp2p<Libp2p<MyLibp2pServices>>
+  public readonly broadcaster: Broadcaster
+  private readonly seenHeads: Map<CID, boolean>
   private curDelta: dpb.delta.Delta | null = null
-  private curDeltaMutex: Mutex = new Mutex()
-  private jobQueue: Array<DagJob>
-  private sendJobs: Array<DagJob>
-  private queuedChildren: CidSafeSet
+  private readonly curDeltaMutex: Mutex = new Mutex()
+  private readonly jobQueue: DagJob[]
+  private readonly sendJobs: DagJob[]
+  private readonly queuedChildren: CidSafeSet
 
-  constructor(
+  constructor (
     store: DSDatastore,
     namespace: Key,
-    dagSyncer: Helia,
+    dagSyncer: HeliaLibp2p<Libp2p<MyLibp2pServices>>,
     broadcaster: Broadcaster,
-    options?: Options,
+    options?: Options
   ) {
     this.ctx = new AbortController()
-    this.options = options || defaultOptions()
+    this.options = options ?? defaultOptions()
     this.logger = this.options.logger
     this.store = store
     this.namespace = namespace
@@ -114,63 +122,140 @@ export class Datastore {
       namespace.child(new Key(setNs)),
       this.logger,
       this.options.putHook,
-      this.options.deleteHook,
+      this.options.deleteHook
     )
     this.heads = new Heads(
       store,
       namespace.child(new Key(headsNs)),
-      this.logger,
+      this.logger
     )
 
     this.handleNext()
-    setTimeout(() => this.dagWorker(), 10)
-    setTimeout(() => this.sendJobWorker(), 10)
-    setTimeout(() => this.rebroadcast(), this.options.rebroadcastInterval)
-    setTimeout(() => this.repair(), this.options.repairInterval)
-    setTimeout(() => this.logStats(), this.options.logInterval)
+
+    void this.scheduleDagWorker()
+    void this.scheduleSendJobWorker()
+    void this.scheduleRebroadcast()
+    void this.scheduleRepair()
+    void this.scheduleLogStats()
   }
 
-  private async handleNext(): Promise<void> {
-    if (!this.broadcaster) return // offline
+  private async scheduleDagWorker (): Promise<void> {
+    try {
+      console.log('running dagWorker')
+      await this.dagWorker()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error in dagWorker:', err)
+    } finally {
+      setTimeout(() => {
+        void this.scheduleDagWorker()
+      }, 1000)
+    }
+  }
 
+  private async scheduleSendJobWorker (): Promise<void> {
+    try {
+      console.log('running sendJobWorker')
+      await this.sendJobWorker()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error in sendJobWorker:', err)
+    } finally {
+      setTimeout(() => {
+        void this.scheduleSendJobWorker()
+      }, 1000)
+    }
+  }
+
+  private async scheduleRebroadcast (): Promise<void> {
+    try {
+      console.log('running rebroadcast')
+      await this.rebroadcast()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error in rebroadcast:', err)
+    } finally {
+      setTimeout(() => {
+        void this.scheduleRebroadcast()
+      }, this.options.rebroadcastInterval)
+    }
+  }
+
+  private async scheduleRepair (): Promise<void> {
+    try {
+      console.log('running repair')
+      await this.repair()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error in repair:', err)
+    } finally {
+      setTimeout(() => {
+        void this.scheduleRepair()
+      }, this.options.repairInterval)
+    }
+  }
+
+  private async scheduleLogStats (): Promise<void> {
+    try {
+      console.log('running logStats')
+      await this.logStats()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error in logStats:', err)
+    } finally {
+      setTimeout(() => {
+        void this.scheduleLogStats()
+      }, this.options.logInterval)
+    }
+  }
+
+  private handleNext (): void {
+    // if (!this.broadcaster) return // offline
     this.broadcaster.setHandler(async (data: Uint8Array) => {
       try {
         this.logger.trace('Handling incoming pubsub message')
+        console.log('Handling incoming pubsub message')
         const bCastHeads = await this.decodeBroadcast(data)
 
-        const processHead = async (c: CID) => {
+        const processHead = async (c: CID): Promise<void> => {
           try {
             await this.handleBlock(c)
           } catch (err) {
             this.logger.error(`error processing new head: ${err}`)
+            console.error(`error processing new head: ${err}`)
           }
         }
 
         const curHeadCount = await this.heads.len()
+        console.log('curHeadCount', curHeadCount)
         if (curHeadCount === 0) {
           const dg = new CrdtNodeGetter(this.dagService.blockstore)
           for (const head of bCastHeads) {
             const prio = await dg.getPriority(head)
+            console.log('prio', prio)
             await this.heads.add(head, prio)
           }
         }
 
         for (const head of bCastHeads) {
           if (this.options.multiHeadProcessing) {
-            processHead(head).catch((err) => this.logger.error(err))
+            processHead(head).catch((err) => { this.logger.error(err) })
           } else {
             await processHead(head)
           }
           this.seenHeads.set(head, true)
         }
       } catch (err) {
-        if (err === ErrNoMoreBroadcast || this.ctx.signal.aborted) return
+        if (err === ErrNoMoreBroadcast || this.ctx.signal.aborted) {
+          return
+        }
         this.logger.error(err)
+        console.error(err)
       }
     })
   }
 
-  private async enqueueJob(job: DagJob): Promise<void> {
+  private async enqueueJob (job: DagJob): Promise<void> {
     if (this.ctx.signal.aborted) {
       return
     }
@@ -178,7 +263,7 @@ export class Datastore {
     this.jobQueue.push(job)
   }
 
-  private async enqueueSendJobs(job: DagJob): Promise<void> {
+  private async enqueueSendJobs (job: DagJob): Promise<void> {
     if (this.ctx.signal.aborted) {
       return
     }
@@ -186,27 +271,30 @@ export class Datastore {
     this.sendJobs.push(job)
   }
 
-  private async dequeueJob(): Promise<DagJob | null> {
-    return this.jobQueue.length ? this.jobQueue.shift()! : null
+  private async dequeueJob (): Promise<DagJob | null> {
+    const job = this.jobQueue.length > 0 ? this.jobQueue.shift() : undefined
+    return job ?? null
   }
 
-  private async dequeueSendJob(): Promise<DagJob | null> {
-    return this.sendJobs.length ? this.sendJobs.shift()! : null
+  private async dequeueSendJob (): Promise<DagJob | null> {
+    const job = this.sendJobs.length > 0 ? this.sendJobs.shift() : undefined
+    return job ?? null
   }
 
-  private async dagWorker(): Promise<void> {
+  private async dagWorker (): Promise<void> {
     while (true) {
       const job = await this.dequeueJob()
-      if (!job) return // Queue closed, exit the worker
+      if (job === null) return // Queue closed, exit the worker
 
       try {
         const children = await this.processNode(
           job.root,
           job.rootPrio,
           job.delta,
-          job.node,
+          job.node
         )
-        this.enqueueSendJobs(
+
+        await this.enqueueSendJobs(
           new DagJob(
             job.session,
             job.nodeGetter,
@@ -214,49 +302,57 @@ export class Datastore {
             job.rootPrio,
             job.delta,
             job.node,
-            children,
-          ),
+            children
+          )
         )
       } catch (error) {
         this.logger.error(error)
-        this.MarkDirty()
+        await this.MarkDirty()
         job.session.release()
       }
     }
   }
 
-  private async sendJobWorker(): Promise<void> {
+  private async sendJobWorker (): Promise<void> {
     while (true) {
       const job = await this.dequeueSendJob()
-      if (!job) return // Queue closed, exit the worker
+      if (job === null) return // Queue closed, exit the worker
 
-      this.enqueueJob(job)
+      await this.enqueueJob(job)
     }
   }
 
-  private async repair(): Promise<void> {
+  private async repair (): Promise<void> {
     if (this.options.repairInterval === 0) return
 
-    let timer = setTimeout(() => this.repairDAG(), 0) // Fire immediately on start
+    let timer = setTimeout(() => {
+      this.repairDAG().catch(err => {
+        this.logger.error('Error in repairDAG:', err)
+      })
+    }, 0) // Fire immediately on start
 
     while (!this.ctx.signal.aborted) {
       await new Promise((resolve) =>
-        setTimeout(resolve, this.options.repairInterval),
+        setTimeout(resolve, this.options.repairInterval)
       )
       clearTimeout(timer)
-      timer = setTimeout(() => this.repairDAG(), this.options.repairInterval)
+      timer = setTimeout(() => {
+        this.repairDAG().catch(err => {
+          this.logger.error('Error in repairDAG:', err)
+        })
+      }, this.options.repairInterval) // Fire immediately on start
     }
 
     clearTimeout(timer)
   }
 
-  private async repairDAG(): Promise<void> {
+  private async repairDAG (): Promise<void> {
     const start = Date.now()
 
     const heads = await this.heads.list()
     const getter = new CrdtNodeGetter(this.dagService.blockstore)
 
-    let nodes: Array<{ head: CID; node: CID }> = []
+    const nodes: Array<{ head: CID, node: CID }> = []
     const queued = new Set<string>()
 
     for (const head of heads.heads) {
@@ -264,13 +360,19 @@ export class Datastore {
       queued.add(head.toString())
     }
 
-    let visitedNodes = 0
-    let lastPriority = 0n
-    let queuedNodes = nodes.length
+    // let visitedNodes = 0
+    // let lastPriority = 0n
+    // let queuedNodes = nodes.length
 
     while (nodes.length > 0 && !this.ctx.signal.aborted) {
-      const { head, node: cur } = nodes.shift()!
-      const { node, delta } = await getter.getDelta(cur)
+      const nodeInfo = nodes.shift()
+      if (nodeInfo === undefined) {
+        throw new Error('Expected a node to process, but got undefined.')
+      }
+
+      const { head, node: cur } = nodeInfo
+      // const { node, delta } = await getter.getDelta(cur)
+      const { node } = await getter.getDelta(cur)
 
       const isProcessed = await this.isProcessed(cur)
       if (!isProcessed) {
@@ -284,34 +386,34 @@ export class Datastore {
         }
       }
 
-      visitedNodes++
-      lastPriority = delta.priority
-      queuedNodes = nodes.length
+      // visitedNodes++
+      // lastPriority = delta.priority
+      // queuedNodes = nodes.length
     }
 
     this.logger.trace(`DAG repair finished. Took ${Date.now() - start} ms`)
-    this.MarkClean()
+    await this.MarkClean()
   }
 
-  private dirtyKey(): Key {
+  private dirtyKey (): Key {
     return this.namespace.child(new Key(dirtyBitKey))
   }
 
-  public MarkDirty(): void {
+  public async MarkDirty (): Promise<void> {
     this.logger.error('Marking datastore as dirty')
-    this.store.put(this.dirtyKey(), new Uint8Array())
+    await this.store.put(this.dirtyKey(), new Uint8Array())
   }
 
-  public async IsDirty(): Promise<boolean> {
+  public async IsDirty (): Promise<boolean> {
     return this.store.has(this.dirtyKey())
   }
 
-  public async MarkClean(): Promise<void> {
+  public async MarkClean (): Promise<void> {
     this.logger.error('Marking datastore as clean')
     await this.store.delete(this.dirtyKey())
   }
 
-  private async logStats(): Promise<void> {
+  private async logStats (): Promise<void> {
     const interval = 5 * 60 * 1000 // 5 minutes
 
     while (!this.ctx.signal.aborted) {
@@ -319,34 +421,34 @@ export class Datastore {
 
       const heads = await this.heads.list()
       this.logger.trace(
-        `Number of heads: ${heads.heads.length}. Max height: ${heads.maxHeight}. Queued jobs: ${this.jobQueue.length}. Dirty: ${await this.IsDirty()}`,
+        `Number of heads: ${heads.heads.length}. Max height: ${heads.maxHeight}. Queued jobs: ${this.jobQueue.length}. Dirty: ${await this.IsDirty()}`
       )
     }
   }
 
-  private async decodeBroadcast(data: Uint8Array): Promise<CID[]> {
+  private async decodeBroadcast (data: Uint8Array): Promise<CID[]> {
     const bcastData = bpb.bcast.CRDTBroadcast.decode(data)
-    if (bcastData && bcastData.Heads) {
+    if (bcastData?.Heads !== undefined) {
       return Promise.all(
-        bcastData.Heads.map((protoHead) => CID.decode(protoHead.Cid)),
+        bcastData.Heads.map((protoHead) => CID.decode(protoHead.Cid))
       )
     }
     throw new Error('Invalid broadcast data')
   }
 
-  private encodeBroadcast(heads: CID[]): Uint8Array {
+  private encodeBroadcast (heads: CID[]): Uint8Array {
     const bcastData: bpb.bcast.CRDTBroadcast = {
-      Heads: heads.map((c) => ({ Cid: c.bytes })),
+      Heads: heads.map((c) => ({ Cid: c.bytes }))
     }
 
     return bpb.bcast.CRDTBroadcast.encode(bcastData)
   }
 
-  private async rebroadcast(): Promise<void> {
-    this.rebroadcastHeads()
+  private async rebroadcast (): Promise<void> {
+    await this.rebroadcastHeads()
   }
 
-  private async rebroadcastHeads(): Promise<void> {
+  public async rebroadcastHeads (): Promise<void> {
     const heads = await this.heads.list()
     const headsToBroadcast: CID[] = []
 
@@ -361,8 +463,8 @@ export class Datastore {
     this.seenHeads.clear()
   }
 
-  private async broadcast(cids: CID[]): Promise<void> {
-    if (!this.broadcaster || cids.length === 0) return
+  private async broadcast (cids: CID[]): Promise<void> {
+    if (cids.length === 0) return
 
     const bcastBytes = this.encodeBroadcast(cids)
     this.logger.trace(`Broadcasting ${cids}`)
@@ -370,7 +472,8 @@ export class Datastore {
     await this.broadcaster.broadcast(bcastBytes)
   }
 
-  private async handleBlock(c: CID): Promise<void> {
+  private async handleBlock (c: CID): Promise<void> {
+    console.log('handling block', c.toString())
     const isProcessed = await this.isProcessed(c)
     if (isProcessed) {
       this.logger.trace(`${c} is known. Skip walking tree`)
@@ -380,42 +483,42 @@ export class Datastore {
     await this.handleBranch(c, c)
   }
 
-  public async handleBranch(head: CID, c: CID): Promise<void> {
+  public async handleBranch (head: CID, c: CID): Promise<void> {
     const dg = new CrdtNodeGetter(this.dagService.blockstore)
     const session = new Mutex()
 
     await this.sendNewJobs(session, dg, head, 0n, [c])
   }
 
-  private async sendNewJobs(
+  private async sendNewJobs (
     session: Mutex,
     ng: CrdtNodeGetter,
     root: CID,
     rootPrio: bigint,
-    children: CID[],
+    children: CID[]
   ): Promise<void> {
     if (children.length === 0) return
 
     const goodDeltas = new Map<CID, boolean>()
 
     for await (const deltaOpt of ng.getDeltas(children)) {
-      if (deltaOpt.err) {
+      if (deltaOpt.err !== null && deltaOpt.err !== undefined) {
         this.logger.error(`Error getting delta: ${deltaOpt.err.message}`)
         throw deltaOpt.err
       }
 
-      if (!deltaOpt.node) {
+      if (deltaOpt.node === null || deltaOpt.node === undefined) {
         this.logger.error('Error getting delta: node is null')
         continue
       }
-      if (!deltaOpt.delta) {
+      if (deltaOpt.delta === null || deltaOpt.delta === undefined) {
         this.logger.error('Error getting delta: delta is null')
         continue
       }
 
       const value = createNode(
-        deltaOpt.node.Data || new Uint8Array(),
-        deltaOpt.node.Links,
+        deltaOpt.node.Data ?? new Uint8Array(),
+        deltaOpt.node.Links
       )
       const block = await Block.encode({ value, codec, hasher })
 
@@ -428,7 +531,7 @@ export class Datastore {
         rootPrio,
         deltaOpt.delta,
         deltaOpt.node,
-        [],
+        []
       )
       this.sendJobs.push(job)
     }
@@ -441,43 +544,48 @@ export class Datastore {
     }
   }
 
-  public async isProcessed(c: CID): Promise<boolean> {
+  public async isProcessed (c: CID): Promise<boolean> {
     const key = this.processedBlockKey(c)
     return this.store.has(key)
   }
 
-  private processedBlockKey(c: CID): Key {
+  private processedBlockKey (c: CID): Key {
     return this.namespace
       .child(new Key(processedBlocksNs))
       .child(new Key(c.toString()))
   }
 
-  private async markProcessed(c: CID): Promise<void> {
+  private async markProcessed (c: CID): Promise<void> {
+    console.log('marking processed', c.toString())
     const key = this.processedBlockKey(c)
     await this.store.put(key, new Uint8Array())
   }
 
-  public async get(key: Key): Promise<Uint8Array | null> {
+  public async get (key: Key): Promise<Uint8Array | null> {
+    console.log('getting key', key.toString())
     return this.set.element(key.toString())
   }
 
-  public async put(key: Key, value: Uint8Array): Promise<void> {
+  public async put (key: Key, value: Uint8Array): Promise<void> {
+    console.log('putting key', key.toString())
     const delta = this.set.add(key.toString(), value)
     await this.publish(delta)
   }
 
-  public async delete(key: Key): Promise<void> {
+  public async delete (key: Key): Promise<void> {
     const delta = await this.set.remove(key.toString())
     if (delta.tombstones.length === 0) return
     await this.publish(delta)
   }
 
-  private async publish(delta: dpb.delta.Delta): Promise<void> {
+  private async publish (delta: dpb.delta.Delta): Promise<void> {
+    console.log('publishing delta', delta)
     const c = await this.addDAGNode(delta)
     await this.broadcast([c])
   }
 
-  private async addDAGNode(delta: dpb.delta.Delta): Promise<CID> {
+  private async addDAGNode (delta: dpb.delta.Delta): Promise<CID> {
+    console.log('adding dag node')
     const heads = await this.heads.list()
     const height = heads.maxHeight + 1n
 
@@ -485,7 +593,7 @@ export class Datastore {
 
     const nd = await this.putBlock(heads.heads, height, delta)
 
-    const value = createNode(nd.Data || new Uint8Array(), nd.Links)
+    const value = createNode(nd.Data ?? new Uint8Array(), nd.Links)
     const block = await Block.encode({ value, codec, hasher })
 
     try {
@@ -498,14 +606,14 @@ export class Datastore {
     return block.cid
   }
 
-  private async putBlock(
+  private async putBlock (
     heads: CID[],
     height: bigint,
-    delta: dpb.delta.Delta,
+    delta: dpb.delta.Delta
   ): Promise<dagPb.PBNode> {
     delta.priority = height
 
-    let links: codec.PBLink[] = []
+    const links: codec.PBLink[] = []
     for (const head of heads) {
       links.push({ Name: '', Hash: head })
     }
@@ -516,13 +624,14 @@ export class Datastore {
     return nd
   }
 
-  public async processNode(
+  public async processNode (
     root: CID,
     rootPrio: bigint,
     delta: dpb.delta.Delta,
-    node: dagPb.PBNode,
+    node: dagPb.PBNode
   ): Promise<CID[]> {
-    const value = createNode(node.Data || new Uint8Array(), node.Links)
+    console.log('processing node')
+    const value = createNode(node.Data ?? new Uint8Array(), node.Links)
     const block = await Block.encode({ value, codec, hasher })
 
     const current = block.cid
@@ -539,7 +648,7 @@ export class Datastore {
       this.queuedChildren.remove(block.cid)
 
       this.logger.error(
-        `Merged delta from node ${current} (priority: ${delta.priority})`,
+        `Merged delta from node ${current} (priority: ${delta.priority})`
       )
 
       const links = node.Links
@@ -576,6 +685,7 @@ export class Datastore {
         // then we can make ourselves a head right away because we are not meant to replace an existing head.
         if (isProcessed || !this.queuedChildren.has(child)) {
           if (!addedAsHead) {
+            // eslint-disable-next-line max-depth
             try {
               await this.heads.add(root, rootPrio)
             } catch (err) {
@@ -590,6 +700,7 @@ export class Datastore {
         children.push(child)
       }
 
+      console.log('children', children)
       return children
     } catch (err) {
       this.logger.error(`Error processing node ${current}: ${err}`)
@@ -597,11 +708,11 @@ export class Datastore {
     }
   }
 
-  public async Batch(): Promise<DatastoreBatch> {
+  public async Batch (): Promise<DatastoreBatch> {
     return new DatastoreBatch(this)
   }
 
-  public async Sync(prefix: Key): Promise<void> {
+  public async Sync (prefix: Key): Promise<void> {
     if (
       'sync' in this.store &&
       typeof this.store.sync === 'function' &&
@@ -617,13 +728,13 @@ export class Datastore {
     }
   }
 
-  public async Close(): Promise<void> {
+  public async Close (): Promise<void> {
     if (await this.IsDirty()) {
       this.logger.error('Datastore closed while marked as dirty')
     }
   }
 
-  public async PrintDAG(): Promise<void> {
+  public async PrintDAG (): Promise<void> {
     const heads = await this.heads.list()
     const getter = new CrdtNodeGetter(this.dagService.blockstore)
 
@@ -634,15 +745,16 @@ export class Datastore {
     }
   }
 
-  private async printDAGRec(
+  private async printDAGRec (
     from: CID,
     depth: number,
     getter: CrdtNodeGetter,
-    set: Set<string>,
+    set: Set<string>
   ): Promise<void> {
     const padding = ' '.repeat(depth)
 
     if (set.has(from.toString())) {
+      // eslint-disable-next-line no-console
       console.log(`${padding}...`)
       return
     }
@@ -668,6 +780,7 @@ export class Datastore {
     }
 
     line += '}:'
+    // eslint-disable-next-line no-console
     console.log(line)
 
     for (const link of node.Links) {
@@ -675,46 +788,47 @@ export class Datastore {
     }
   }
 
-  public async InternalStats(): Promise<Stats> {
+  public async InternalStats (): Promise<Stats> {
     const heads = await this.heads.list()
     return {
       heads: heads.heads,
       maxHeight: heads.maxHeight,
-      queuedJobs: this.jobQueue.length,
+      queuedJobs: this.jobQueue.length
     }
   }
 
-  public async addToDelta(key: string, value: Uint8Array): Promise<number> {
+  public async addToDelta (key: string, value: Uint8Array): Promise<number> {
     const newDelta = this.set.add(key, value)
-    return await this.updateDelta(newDelta)
+    return this.updateDelta(newDelta)
   }
 
-  private async updateDelta(newDelta: dpb.delta.Delta): Promise<number> {
-    return await this.curDeltaMutex.runExclusive(() => {
-      if (this.curDelta) {
+  private async updateDelta (newDelta: dpb.delta.Delta): Promise<number> {
+    return this.curDeltaMutex.runExclusive(() => {
+      if (this.curDelta !== null) {
         this.curDelta = this.mergeDeltas(this.curDelta, newDelta)
         return dpb.delta.Delta.encode(this.curDelta).length
       }
       return 0
     })
   }
-  private mergeDeltas(
+
+  private mergeDeltas (
     d1: dpb.delta.Delta,
-    d2: dpb.delta.Delta,
+    d2: dpb.delta.Delta
   ): dpb.delta.Delta {
     return {
-      elements: [...(d1.elements || []), ...(d2.elements || [])],
-      tombstones: [...(d1.tombstones || []), ...(d2.tombstones || [])],
-      priority: d2.priority > d1.priority ? d2.priority : d1.priority,
+      elements: [...(Array.isArray(d1.elements) ? d1.elements : []), ...(Array.isArray(d2.elements) ? d2.elements : [])],
+      tombstones: [...(Array.isArray(d1.tombstones) ? d1.tombstones : []), ...(Array.isArray(d2.tombstones) ? d2.tombstones : [])],
+      priority: d2.priority > d1.priority ? d2.priority : d1.priority
     }
   }
 
-  private async updateDeltaWithRemove(
+  private async updateDeltaWithRemove (
     key: string,
-    newDelta: dpb.delta.Delta,
+    newDelta: dpb.delta.Delta
   ): Promise<number> {
-    return await this.curDeltaMutex.runExclusive(() => {
-      if (this.curDelta) {
+    return this.curDeltaMutex.runExclusive(() => {
+      if (this.curDelta !== null) {
         const elements = this.curDelta.elements.filter((e) => e.key !== key)
         this.curDelta.elements = elements
       } else {
@@ -725,14 +839,14 @@ export class Datastore {
     })
   }
 
-  public async rmvToDelta(key: string): Promise<number> {
+  public async rmvToDelta (key: string): Promise<number> {
     const newDelta = await this.set.remove(key)
     return this.updateDeltaWithRemove(key, newDelta)
   }
 
-  public async publishDelta(): Promise<void> {
+  public async publishDelta (): Promise<void> {
     await this.curDeltaMutex.runExclusive(async () => {
-      if (!this.curDelta) {
+      if (this.curDelta === null) {
         return // No delta to publish
       }
 
@@ -748,21 +862,21 @@ export class Datastore {
 }
 
 class DagJob {
-  constructor(
+  constructor (
     public session: Mutex,
     public nodeGetter: CrdtNodeGetter,
     public root: CID,
     public rootPrio: bigint,
     public delta: dpb.delta.Delta,
     public node: dagPb.PBNode,
-    public children: CID[],
-  ) {}
+    public children: CID[]
+  ) { }
 }
 
 class CidSafeSet {
-  private set: Set<string> = new Set()
+  private readonly set = new Set<string>()
 
-  public visit(c: CID): boolean {
+  public visit (c: CID): boolean {
     const cidStr = c.toString()
     if (this.set.has(cidStr)) {
       return false
@@ -772,35 +886,37 @@ class CidSafeSet {
     }
   }
 
-  public remove(c: CID): void {
+  public remove (c: CID): void {
     this.set.delete(c.toString())
   }
 
-  public has(c: CID): boolean {
+  public has (c: CID): boolean {
     return this.set.has(c.toString())
   }
 }
 
 class DatastoreBatch implements DSBatch {
-  constructor(private store: Datastore) {}
+  constructor (private readonly store: Datastore) { }
 
-  async put(key: Key, value: Uint8Array): Promise<void> {
+  async put (key: Key, value: Uint8Array): Promise<void> {
     const size = await this.store.addToDelta(key.toString(), value)
     if (size > this.store.options.maxBatchDeltaSize) {
+      // eslint-disable-next-line no-console
       console.log('Delta size exceeded max, committing batch')
       await this.commit()
     }
   }
 
-  async delete(key: Key): Promise<void> {
+  async delete (key: Key): Promise<void> {
     const size = await this.store.rmvToDelta(key.toString())
     if (size > this.store.options.maxBatchDeltaSize) {
+      // eslint-disable-next-line no-console
       console.log('Delta size exceeded max, committing batch')
       await this.commit()
     }
   }
 
-  async commit(): Promise<void> {
+  async commit (): Promise<void> {
     await this.store.publishDelta()
   }
 }

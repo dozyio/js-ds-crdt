@@ -1,28 +1,26 @@
-import { CID } from 'multiformats/cid'
-import type { Datastore, Query } from 'interface-datastore'
-import { Key } from 'interface-datastore'
-import type { Logger } from '@libp2p/logger'
-import { Mutex } from 'async-mutex'
 import * as dagPb from '@ipld/dag-pb'
+import { Mutex } from 'async-mutex'
+import { Key } from 'interface-datastore'
+import { CID } from 'multiformats/cid'
 import {
   arrayBufferToBigInt,
   bigintToUint8Array,
   dsKeyToCidV1,
-  multihashToDsKey,
+  multihashToDsKey
 } from './utils'
+import type { Logger } from '@libp2p/logger'
+import type { Datastore, Query } from 'interface-datastore'
 
-interface Cache {
-  [cid: string]: bigint
-}
+type Cache = Record<string, bigint>
 
 export class Heads {
-  private store: Datastore
+  private readonly store: Datastore
   private cache: Cache
-  private cacheMux: Mutex
+  private readonly cacheMux: Mutex
   public namespace: Key
-  private logger: Logger
+  private readonly logger: Logger
 
-  constructor(store: Datastore, namespace: Key, logger: Logger) {
+  constructor (store: Datastore, namespace: Key, logger: Logger) {
     this.store = store
     this.namespace = namespace
     this.logger = logger
@@ -30,31 +28,33 @@ export class Heads {
     this.cacheMux = new Mutex()
   }
 
-  private key(c: CID): Key {
+  private key (c: CID): Key {
     const multihashKey = multihashToDsKey(c.multihash.bytes)
     return this.namespace.child(multihashKey) // Attach the namespace to the key
   }
 
-  public async isHead(c: CID): Promise<{ isHead: boolean; height: bigint }> {
+  public async isHead (c: CID): Promise<{ isHead: boolean, height: bigint }> {
     return this.cacheMux.runExclusive(async () => {
       for (const cachedCidStr in this.cache) {
-        const cachedCid = CID.parse(cachedCidStr)
-        if (c.equals(cachedCid)) {
-          return { isHead: true, height: this.cache[cachedCidStr] }
+        if (Object.prototype.hasOwnProperty.call(this.cache, cachedCidStr)) { // Check if the property is a direct property
+          const cachedCid = CID.parse(cachedCidStr)
+          if (c.equals(cachedCid)) {
+            return { isHead: true, height: this.cache[cachedCidStr] }
+          }
         }
       }
       return { isHead: false, height: 0n }
     })
   }
 
-  public async len(): Promise<number> {
+  public async len (): Promise<number> {
     return this.cacheMux.runExclusive(async () => {
       return Object.keys(this.cache).length
     })
   }
 
-  public async replace(h: CID, c: CID, height: bigint): Promise<void> {
-    let store = this.store
+  public async replace (h: CID, c: CID, height: bigint): Promise<void> {
+    const store = this.store
 
     // Check if the original CID is among the current heads
     const { isHead } = await this.isHead(h)
@@ -73,32 +73,38 @@ export class Heads {
     }
 
     await this.cacheMux.runExclusive(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       delete this.cache[h.toString()]
       this.cache[c.toString()] = height
     })
   }
 
-  private async write(store: Datastore, c: CID, height: bigint): Promise<void> {
+  private async write (store: Datastore, c: CID, height: bigint): Promise<void> {
     // const buf = new Uint8Array(8);
     // const view = new DataView(buf.buffer);
     // view.setUint32(0, height, true);
 
     const key = this.key(c) // Now includes the namespace
     this.logger.trace(
-      `Writing key: ${key.toString()}, CID: ${c.toString()}, height: ${height}`,
+      `Writing key: ${key.toString()}, CID: ${c.toString()}, height: ${height}`
+    )
+    console.log(
+      `Writing key: ${key.toString()}, CID: ${c.toString()}, height: ${height}`
     )
 
     await store.put(key, bigintToUint8Array(height))
   }
 
-  private async delete(store: Datastore, c: CID): Promise<void> {
+  private async delete (store: Datastore, c: CID): Promise<void> {
     const key = this.key(c)
     this.logger.trace(`Deleting key: ${key.toString()}, CID: ${c.toString()}`)
+    console.log(`Deleting key: ${key.toString()}, CID: ${c.toString()}`)
     await store.delete(key)
   }
 
-  public async add(c: CID, height: bigint): Promise<void> {
+  public async add (c: CID, height: bigint): Promise<void> {
     this.logger.trace(`Adding new DAG head: ${c} (height: ${height})`)
+    console.log(`Adding new DAG head: ${c} (height: ${height})`)
     await this.write(this.store, c, height)
 
     await this.cacheMux.runExclusive(async () => {
@@ -106,7 +112,7 @@ export class Heads {
     })
   }
 
-  public async list(): Promise<{ heads: CID[]; maxHeight: bigint }> {
+  public async list (): Promise<{ heads: CID[], maxHeight: bigint }> {
     return this.cacheMux.runExclusive(async () => {
       const heads = Object.keys(this.cache).map((cidStr) => CID.parse(cidStr))
       const maxHeight = Object.values(this.cache)
@@ -119,9 +125,9 @@ export class Heads {
     })
   }
 
-  public async primeCache(): Promise<void> {
+  public async primeCache (): Promise<void> {
     const q: Query = {
-      prefix: this.namespace.toString(),
+      prefix: this.namespace.toString()
     }
 
     const results = this.store.query(q)
@@ -138,6 +144,7 @@ export class Heads {
         const height = arrayBufferToBigInt(r.value.buffer)
         this.cache[headCid.toString()] = height
       } catch (error) {
+        // eslint-disable-next-line no-console
         console.error(`Failed to decode key: ${multibaseStr}`, error)
         throw error
       }

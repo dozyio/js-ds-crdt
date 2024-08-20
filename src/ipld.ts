@@ -1,10 +1,10 @@
-import { CID } from 'multiformats/cid'
-import type { Blockstore } from 'interface-blockstore'
-import { delta } from './pb/delta'
-import type { AbortOptions } from 'interface-store'
-import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import * as codec from '@ipld/dag-pb'
 import * as Block from 'multiformats/block'
+import { type CID } from 'multiformats/cid'
+import { sha256 as hasher } from 'multiformats/hashes/sha2'
+import { delta } from './pb/delta'
+import type { Blockstore } from 'interface-blockstore'
+import type { AbortOptions } from 'interface-store'
 
 export interface DeltaOption {
   delta?: delta.Delta
@@ -17,35 +17,39 @@ const { createNode } = codec
 export class CrdtNodeGetter {
   private readonly blockstore: Blockstore
 
-  constructor(blockstore: Blockstore) {
+  constructor (blockstore: Blockstore) {
     this.blockstore = blockstore
   }
 
-  async getDelta(
+  async getDelta (
     cid: CID,
-    options?: AbortOptions,
-  ): Promise<{ node: codec.PBNode; delta: delta.Delta }> {
+    options?: AbortOptions
+  ): Promise<{ node: codec.PBNode, delta: delta.Delta }> {
+    console.log('getting delta', cid.toString())
     const node = await this.getNode(cid, options)
+    console.log('getDelta node', node)
     const delta = this.extractDelta(node)
     return { node, delta }
   }
 
-  async getPriority(cid: CID, options?: AbortOptions): Promise<bigint> {
+  async getPriority (cid: CID, options?: AbortOptions): Promise<bigint> {
+    console.log('getting priority', cid.toString())
     const { delta } = await this.getDelta(cid, options)
+    console.log('priority', delta.priority)
     return delta.priority
   }
 
-  getDeltas(cids: CID[], options?: AbortOptions): AsyncIterable<DeltaOption> {
+  getDeltas (cids: CID[], options?: AbortOptions): AsyncIterable<DeltaOption> {
     const self = this
 
-    async function* generator() {
+    async function * generator (): AsyncIterable<DeltaOption> {
       for await (const { node, error } of self.getNodes(cids, options)) {
-        if (error) {
+        if (error !== undefined) {
           yield { err: error }
           continue
         }
         try {
-          if (!node || !node.Data) {
+          if (node?.Data === undefined) {
             continue
           }
           const delta = self.extractDelta(node)
@@ -59,28 +63,31 @@ export class CrdtNodeGetter {
     return generator()
   }
 
-  private async getNode(
+  private async getNode (
     cid: CID,
-    options?: AbortOptions,
+    options?: AbortOptions
   ): Promise<codec.PBNode> {
+    console.log('getting node', cid.toString())
     const block = await this.blockstore.get(cid, options)
+    console.log('block', block)
     const node = await Block.decode({ bytes: block, codec, hasher })
+    console.log('node', node)
 
-    let links: codec.PBLink[] = []
+    const links: codec.PBLink[] = []
     for (const [name, cid] of node.links()) {
       links.push({
         Name: name,
-        Hash: cid,
+        Hash: cid
       })
     }
 
     return { Data: node.value.Data, Links: links }
   }
 
-  private async *getNodes(
+  private async * getNodes (
     cids: CID[],
-    options?: AbortOptions,
-  ): AsyncIterable<{ node?: codec.PBNode; error?: Error }> {
+    options?: AbortOptions
+  ): AsyncIterable<{ node?: codec.PBNode, error?: Error }> {
     for (const cid of cids) {
       try {
         const node = await this.getNode(cid, options)
@@ -91,8 +98,8 @@ export class CrdtNodeGetter {
     }
   }
 
-  private extractDelta(node: codec.PBNode): delta.Delta {
-    if (!node || !node.Data || node.Data.length === 0) {
+  private extractDelta (node: codec.PBNode): delta.Delta {
+    if (node?.Data === undefined || node.Data.length === 0) {
       throw new Error('Node has no data')
     }
 
@@ -106,8 +113,8 @@ export class CrdtNodeGetter {
     }
   }
 
-  static async makeNode(d: delta.Delta, heads: CID[]): Promise<codec.PBNode> {
-    let links: codec.PBLink[] = []
+  static async makeNode (d: delta.Delta, heads: CID[]): Promise<codec.PBNode> {
+    const links: codec.PBLink[] = []
     for (const head of heads) {
       links.push({ Name: '', Hash: head })
     }

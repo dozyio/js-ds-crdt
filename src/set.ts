@@ -1,8 +1,8 @@
-import { type Datastore, Key, type Pair, type Query } from 'interface-datastore'
-import { BloomFilter } from 'bloom-filters'
 import { Mutex } from 'async-mutex'
+import { BloomFilter } from 'bloom-filters'
+import { type Datastore, Key, type Pair, type Query } from 'interface-datastore'
+import type * as pb from './pb/delta'
 import type { Logger } from '@libp2p/logger'
-import * as pb from './pb/delta'
 
 // Define namespaces and suffixes
 const elemsNs = 's'
@@ -16,20 +16,20 @@ const TombstonesBloomFilterSize = 30 * 1024 * 1024 * 8 // 30 MiB
 const TombstonesBloomFilterHashes = 2
 
 export class CRDTSet {
-  private store: Datastore
-  private namespace: Key
-  private putHook?: (key: string, value: Uint8Array) => void
-  private deleteHook?: (key: string) => void
-  private logger: Logger
-  private putElemsMux: Mutex
-  private tombstonesBloom: BloomFilter
+  private readonly store: Datastore
+  private readonly namespace: Key
+  private readonly putHook?: (key: string, value: Uint8Array) => void
+  private readonly deleteHook?: (key: string) => void
+  private readonly logger: Logger
+  private readonly putElemsMux: Mutex
+  private readonly tombstonesBloom: BloomFilter
 
-  constructor(
+  constructor (
     store: Datastore,
     namespace: Key,
     logger: Logger,
     putHook?: (key: string, value: Uint8Array) => void,
-    deleteHook?: (key: string) => void,
+    deleteHook?: (key: string) => void
   ) {
     this.store = store
     this.namespace = namespace
@@ -39,17 +39,19 @@ export class CRDTSet {
     this.putElemsMux = new Mutex()
     this.tombstonesBloom = new BloomFilter(
       TombstonesBloomFilterSize,
-      TombstonesBloomFilterHashes,
+      TombstonesBloomFilterHashes
     )
 
-    this.primeBloomFilter()
+    this.primeBloomFilter().catch((err: any) => {
+      throw err
+    })
   }
 
   // Prime the Bloom filter with existing tombstones
-  private async primeBloomFilter(): Promise<void> {
+  private async primeBloomFilter (): Promise<void> {
     const tombsPrefix = this.keyPrefix(tombsNs)
     const q: Query = {
-      prefix: tombsPrefix.toString(),
+      prefix: tombsPrefix.toString()
       // keysOnly: true, // TODO look at pair filter
     }
 
@@ -63,27 +65,28 @@ export class CRDTSet {
     }
 
     this.logger.trace(`Tombstones have bloomed: ${nTombs} tombs.`)
+    console.log(`Tombstones have bloomed: ${nTombs} tombs.`)
   }
 
   // Add a new element
-  public add(key: string, value: Uint8Array): pb.delta.Delta {
+  public add (key: string, value: Uint8Array): pb.delta.Delta {
     return {
       elements: [{ key, value }] as pb.delta.Element[],
       tombstones: [],
-      priority: BigInt(0),
+      priority: BigInt(0)
     }
   }
 
   // Remove an element
-  public async remove(key: string): Promise<pb.delta.Delta> {
+  public async remove (key: string): Promise<pb.delta.Delta> {
     const delta: pb.delta.Delta = {
       elements: [],
       tombstones: [],
-      priority: BigInt(0),
+      priority: BigInt(0)
     }
     const prefix = this.elemsPrefix(key)
     const q: Query = {
-      prefix: prefix.toString(),
+      prefix: prefix.toString()
       // keysOnly: true // TODO look at pair filter
     }
     const results = this.store.query(q)
@@ -92,7 +95,8 @@ export class CRDTSet {
       const id = result.key.toString().replace(prefix.toString(), '')
       if (new Key(id).isTopLevel()) {
         const deleted = await this.inTombsKeyID(key, id)
-        if (!deleted && delta && delta.tombstones) {
+        // if (!deleted && delta?.tombstones != null && delta.tombstones.length > 0) {
+        if (!deleted && delta?.tombstones != null) {
           delta.tombstones.push({ key, id, value: new Uint8Array() })
         }
       }
@@ -100,20 +104,7 @@ export class CRDTSet {
     return delta
   }
 
-  // Retrieve the value of an element from the CRDT set
-  // public async element(key: string): Promise<Uint8Array | null> {
-  //   const valueK = this.valueKey(key);
-  //   const value = await this.store.get(valueK);
-  //
-  //   if (!value) return null;
-  //
-  //   const inSet = await this.checkNotTombstoned(key);
-  //   if (!inSet) {
-  //     return null;
-  //   }
-  //   return value;
-  // }
-  public async element(key: string): Promise<Uint8Array | null> {
+  public async element (key: string): Promise<Uint8Array | null> {
     const valueK = this.valueKey(key)
 
     try {
@@ -132,8 +123,8 @@ export class CRDTSet {
   }
 
   // Return all elements in the set
-  public async elements(q: Query): Promise<Pair[]> {
-    if (!q.prefix) {
+  public async elements (q: Query): Promise<Pair[]> {
+    if (q.prefix === null || q.prefix === undefined || q.prefix === '') {
       throw new Error('Query prefix is required')
     }
 
@@ -145,7 +136,7 @@ export class CRDTSet {
     const vSuffix = `/${valueSuffix}`
 
     const setQuery: Query = {
-      prefix: setQueryPrefix,
+      prefix: setQueryPrefix
       // keysOnly: false, // TODO look at pair filter
     }
 
@@ -166,7 +157,7 @@ export class CRDTSet {
 
       finalResults.push({
         key: new Key(key),
-        value: result.value,
+        value: result.value
         // size: -1 // TODO result.size,
         // expiration: -1 // TODO result.expiration,
       })
@@ -176,7 +167,7 @@ export class CRDTSet {
   }
 
   // Check if a key belongs to the set
-  public async inSet(key: string): Promise<boolean> {
+  public async inSet (key: string): Promise<boolean> {
     const valueK = this.valueKey(key)
     const exists = await this.store.has(valueK)
     if (!exists) return false
@@ -185,11 +176,11 @@ export class CRDTSet {
   }
 
   // Perform a sync against all the paths associated with a key prefix
-  public async datastoreSync(prefix: Key): Promise<void> {
+  public async datastoreSync (prefix: Key): Promise<void> {
     const toSync = [
       this.elemsPrefix(prefix.toString()),
       this.tombsPrefix(prefix.toString()),
-      this.keyPrefix(keysNs).child(prefix),
+      this.keyPrefix(keysNs).child(prefix)
     ]
 
     const errors = await Promise.all(
@@ -201,55 +192,56 @@ export class CRDTSet {
         } catch (error) {
           return error
         }
-      }),
+      })
     )
 
     if (errors.some(Boolean)) {
+      // eslint-disable-next-line @typescript-eslint/no-throw-literal
       throw errors
     }
   }
 
   // Helper methods for generating keys
 
-  private keyPrefix(key: string): Key {
+  private keyPrefix (key: string): Key {
     return this.namespace.child(new Key(key))
   }
 
-  private elemsPrefix(key: string): Key {
+  private elemsPrefix (key: string): Key {
     return this.keyPrefix(elemsNs).child(new Key(key))
   }
 
-  private tombsPrefix(key: string): Key {
+  private tombsPrefix (key: string): Key {
     return this.keyPrefix(tombsNs).child(new Key(key))
   }
 
-  private valueKey(key: string): Key {
+  private valueKey (key: string): Key {
     return this.keyPrefix(keysNs)
       .child(new Key(key))
       .child(new Key(valueSuffix))
   }
 
-  private priorityKey(key: string): Key {
+  private priorityKey (key: string): Key {
     return this.keyPrefix(keysNs)
       .child(new Key(key))
       .child(new Key(prioritySuffix))
   }
 
   // Check if a key is in the tombstones
-  private async inTombsKeyID(key: string, id: string): Promise<boolean> {
+  private async inTombsKeyID (key: string, id: string): Promise<boolean> {
     const k = this.tombsPrefix(key).child(new Key(id))
     return this.store.has(k)
   }
 
   // Check if a key is not tombstoned
-  private async checkNotTombstoned(key: string): Promise<boolean> {
+  private async checkNotTombstoned (key: string): Promise<boolean> {
     if (!this.tombstonesBloom.has(key)) {
       return true
     }
 
     const prefix = this.elemsPrefix(key)
     const q: Query = {
-      prefix: prefix.toString(),
+      prefix: prefix.toString()
       // keysOnly: true // TODO look at pair filter
     }
     const results = this.store.query(q)
@@ -267,12 +259,12 @@ export class CRDTSet {
     return false
   }
 
-  private async setValue(
+  private async setValue (
     writeStore: Datastore,
     key: string,
     id: string,
     value: Uint8Array,
-    prio: bigint,
+    prio: bigint
   ): Promise<void> {
     const deleted = await this.inTombsKeyID(key, id)
     if (deleted) return
@@ -286,26 +278,29 @@ export class CRDTSet {
       // New priority is higher, or priorities are equal but value is lexicographically greater
       await writeStore.put(this.valueKey(key), value)
       await this.setPriority(writeStore, key, prio)
-      if (this.putHook) {
+      if (this.putHook !== undefined) {
         this.putHook(key, value)
       }
     }
   }
 
-  private async getPriority(key: string): Promise<bigint> {
+  private async getPriority (key: string): Promise<bigint> {
     const prioK = this.priorityKey(key)
     try {
       const data = await this.store.get(prioK)
-      if (!data || data.length === 0) return BigInt(0)
+      if (data === null || data === undefined || data.length === 0) {
+        return BigInt(0)
+      }
 
       const view = new DataView(data.buffer)
       const prio = view.getBigUint64(0, true)
 
       return prio - BigInt(1)
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as Error
       if (
-        error.code === 'ERR_NOT_FOUND' ||
-        error.message.includes('Not Found')
+        (err as any).code === 'ERR_NOT_FOUND' || // Only if error might have a 'code' property
+        err.message.includes('Not Found')
       ) {
         // Return default priority if key is not found
         return BigInt(0)
@@ -314,10 +309,10 @@ export class CRDTSet {
     }
   }
 
-  private async setPriority(
+  private async setPriority (
     writeStore: Datastore,
     key: string,
-    prio: bigint,
+    prio: bigint
   ): Promise<void> {
     const prioK = this.priorityKey(key)
     const buf = new Uint8Array(8)
@@ -327,15 +322,15 @@ export class CRDTSet {
     await writeStore.put(prioK, buf)
   }
 
-  public async putElems(
+  public async putElems (
     elems: pb.delta.Element[],
     id: string,
-    prio: bigint,
+    prio: bigint
   ): Promise<void> {
     await this.putElemsMux.runExclusive(async () => {
-      if (!elems.length) return
+      if (elems.length === 0) return
 
-      let store = this.store
+      const store = this.store
       if ('batch' in store && typeof store.batch === 'function') {
         store.batch()
       }
@@ -360,8 +355,8 @@ export class CRDTSet {
   }
 
   // Put tombstones into the set
-  public async putTombs(tombs: pb.delta.Element[]): Promise<void> {
-    if (!tombs.length) return
+  public async putTombs (tombs: pb.delta.Element[]): Promise<void> {
+    if (tombs.length === 0) return
 
     const store = this.store
     for (const tomb of tombs) {
@@ -370,14 +365,14 @@ export class CRDTSet {
       await store.put(k, new Uint8Array())
 
       this.tombstonesBloom.add(elemKey)
-      if (this.deleteHook) {
+      if (this.deleteHook !== undefined) {
         this.deleteHook(elemKey)
       }
     }
   }
 
   // Merge deltas into the set
-  public async merge(delta: pb.delta.Delta, id: string): Promise<void> {
+  public async merge (delta: pb.delta.Delta, id: string): Promise<void> {
     await this.putTombs(delta.tombstones)
     await this.putElems(delta.elements, id, delta.priority)
   }
