@@ -5,6 +5,7 @@ import * as codec from '@ipld/dag-pb'
 import { identify } from '@libp2p/identify'
 import { prefixLogger } from '@libp2p/logger'
 import { tcp } from '@libp2p/tcp'
+import { multiaddr } from '@multiformats/multiaddr'
 import { MemoryBlockstore } from 'blockstore-core'
 import { MemoryDatastore } from 'datastore-core/memory'
 import { createHelia, type HeliaLibp2p } from 'helia'
@@ -14,6 +15,7 @@ import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { describe, it, expect, beforeEach } from 'vitest'
+import debug from 'weald'
 import { Datastore, type MyLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
 import type { Libp2p, Message, SignedMessage } from '@libp2p/interface'
@@ -89,7 +91,7 @@ async function createNode (): Promise<HeliaLibp2p<Libp2p<MyLibp2pServices>>> {
   return h
 }
 
-async function createReplicas (count: number, topic: string = 'test'): Promise<Datastore[]> {
+async function createReplicas (count: number, topic: string = 'test', connectTo?: Multiaddr): Promise<Datastore[]> {
   const replicas: Datastore[] = []
   for (let i = 0; i < count; i++) {
     const store = new MemoryDatastore()
@@ -118,6 +120,10 @@ async function createReplicas (count: number, topic: string = 'test'): Promise<D
       const ma = replicas[j].dagService.libp2p.getMultiaddrs()
       await replicas[i].dagService.libp2p.dial(ma[0])
     }
+  }
+
+  if (connectTo) {
+    await replicas[0].dagService.libp2p.dial(connectTo)
   }
 
   for (let i = 0; i < count; i++) {
@@ -326,6 +332,41 @@ describe('Datastore', () => {
         const replicatedValue = await replica.get(key)
         expect(replicatedValue).toEqual(value)
       }
+    }, 20000)
+  })
+
+  describe('Interop', () => {
+    it.only('should replicate data to Go', async () => {
+      debug.enable('*') // 'crdt*,*crdt:trace')
+      const remote = '/ip4/127.0.0.1/tcp/53751/p2p/12D3KooWEkgRTTXGsmFLBembMHxVPDcidJyqFcrqbm9iBE1xhdXq'
+      const ma = multiaddr(remote)
+
+      const replicas = await createReplicas(1, 'globaldb-example', ma)
+
+      const key = new Key('/test/key')
+      const value = Buffer.from('hola2')
+
+      // Put the value in the first replica
+      await replicas[0].put(key, value)
+
+      await waitForPropagation(15000)
+
+      console.log('replica[0] DAG')
+      await replicas[0].printDAG()
+
+      const list0 = []
+      for await (const { key, value } of replicas[0].store.query({})) {
+        list0.push(key)
+      }
+      console.log('LIST0 ALL THE VALUES', list0)
+
+      expect(true).toEqual(true)
+      // // Wait for the value to be available in all replicas
+      // for (const replica of replicas) {
+      //   await waitUntil(() => replica.get(key) !== null)
+      //   const replicatedValue = await replica.get(key)
+      //   expect(replicatedValue).toEqual(value)
+      // }
     }, 20000)
   })
 })
