@@ -136,7 +136,7 @@ async function createReplicas (count: number): Promise<Datastore[]> {
 
 async function simulatePropagation (replicas: Datastore[]): Promise<void> {
   // This could be a simple delay or a more sophisticated simulation
-  await new Promise((resolve) => setTimeout(resolve, 20000))
+  await new Promise((resolve) => setTimeout(resolve, 2000))
 }
 
 describe('Datastore', () => {
@@ -340,7 +340,7 @@ describe('Datastore', () => {
     const replicas = await createReplicas(2)
 
     const key = new Key('/test/key')
-    const value = new Uint8Array(Buffer.from('hola'))
+    const value = Buffer.from('hola')
 
     // Put the value in the first replica
     await replicas[0].put(key, value)
@@ -371,7 +371,7 @@ describe('Datastore', () => {
       const replicatedValue = await replica.get(key)
       expect(replicatedValue).toEqual(value)
     }
-  }, 30000)
+  }, 10000)
 
   it('should handle concurrent updates and ensure final consistency', async () => {
     const key = new Key('k')
