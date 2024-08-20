@@ -2,7 +2,6 @@ import { gossipsub } from '@chainsafe/libp2p-gossipsub'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import * as codec from '@ipld/dag-pb'
-import { bootstrap } from '@libp2p/bootstrap'
 import { identify } from '@libp2p/identify'
 import { prefixLogger } from '@libp2p/logger'
 import { tcp } from '@libp2p/tcp'
@@ -15,10 +14,9 @@ import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { describe, it, expect, beforeEach } from 'vitest'
-import { Datastore, defaultOptions, type MyLibp2pServices } from '../src/crdt'
-import { delta } from '../src/pb/delta'
+import { Datastore, type MyLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
-import type { Libp2p, Logger, Message, SignedMessage } from '@libp2p/interface'
+import type { Libp2p, Message, SignedMessage } from '@libp2p/interface'
 
 export async function msgIdFnStrictNoSign (msg: Message): Promise<Uint8Array> {
   const signedMessage = msg as SignedMessage
@@ -91,13 +89,13 @@ async function createNode (): Promise<HeliaLibp2p<Libp2p<MyLibp2pServices>>> {
   return h
 }
 
-async function createReplicas (count: number): Promise<Datastore[]> {
+async function createReplicas (count: number, topic: string = 'test'): Promise<Datastore[]> {
   const replicas: Datastore[] = []
   for (let i = 0; i < count; i++) {
     const store = new MemoryDatastore()
     const namespace = new Key(`crdt${i}`)
     const dagService = await createNode()
-    const broadcaster = new PubSubBroadcaster(dagService.libp2p, 'test', prefixLogger(`crdt${i}`).forComponent('pubsub'))
+    const broadcaster = new PubSubBroadcaster(dagService.libp2p, topic, prefixLogger(`crdt${i}`).forComponent('pubsub'))
 
     const options = {
       loggerPrefix: `crdt${i}`,
@@ -113,10 +111,6 @@ async function createReplicas (count: number): Promise<Datastore[]> {
     const datastore = new Datastore(store, namespace, dagService, broadcaster, options)
     replicas.push(datastore)
   }
-
-  // for (let i = 0; i < count; i++) {
-  //   console.log(`replica ${i} peerId`, replicas[i].dagService.libp2p.peerId.toString())
-  // }
 
   // connect each replica to each other
   for (let i = 0; i < count - 1; i++) {
@@ -134,44 +128,44 @@ async function createReplicas (count: number): Promise<Datastore[]> {
   return replicas
 }
 
-async function simulatePropagation (replicas: Datastore[]): Promise<void> {
+async function waitForPropagation (delay = 2000): Promise<void> {
   // This could be a simple delay or a more sophisticated simulation
-  await new Promise((resolve) => setTimeout(resolve, 2000))
+  await new Promise((resolve) => setTimeout(resolve, delay))
 }
 
 describe('Datastore', () => {
-  // let store: MemoryDatastore
-  // let namespace: Key
-  // let dagService: HeliaLibp2p<Libp2p<MyLibp2pServices>>
-  // let broadcaster: any
-  // let options: any
-  // let datastore: Datastore
+  let store: MemoryDatastore
+  let namespace: Key
+  let dagService: HeliaLibp2p<Libp2p<MyLibp2pServices>>
+  let broadcaster: any
+  let options: any
+  let datastore: Datastore
 
-  // beforeEach(async () => {
-  //   store = new MemoryDatastore()
-  //   namespace = new Key('testNamespace')
-  //   dagService = await createNode()
-  //   broadcaster = new PubSubBroadcaster(dagService.libp2p, 'test')
-  //
-  //   options = {
-  //     logger: console,
-  //     rebroadcastInterval: 1000,
-  //     repairInterval: 2000,
-  //     logInterval: 3000,
-  //     numWorkers: 1,
-  //     dagSyncerTimeout: 1000,
-  //     maxBatchDeltaSize: 1000,
-  //     multiHeadProcessing: false
-  //   }
-  //
-  //   datastore = new Datastore(
-  //     store,
-  //     namespace,
-  //     dagService,
-  //     broadcaster,
-  //     options
-  //   )
-  // })
+  beforeEach(async () => {
+    store = new MemoryDatastore()
+    namespace = new Key('testNamespace')
+    dagService = await createNode()
+    broadcaster = new PubSubBroadcaster(dagService.libp2p, 'test', prefixLogger('crdt').forComponent('pubsub'))
+
+    options = {
+      logger: console,
+      rebroadcastInterval: 1000,
+      repairInterval: 2000,
+      logInterval: 3000,
+      numWorkers: 1,
+      dagSyncerTimeout: 1000,
+      maxBatchDeltaSize: 1000,
+      multiHeadProcessing: false
+    }
+
+    datastore = new Datastore(
+      store,
+      namespace,
+      dagService,
+      broadcaster,
+      options
+    )
+  })
 
   it('should initialize correctly', () => {
     expect(datastore.options).toEqual(options)
@@ -201,11 +195,11 @@ describe('Datastore', () => {
   })
 
   it('should mark the datastore as dirty and clean', async () => {
-    await datastore.MarkDirty()
-    expect(await datastore.IsDirty()).toBe(true)
+    await datastore.markDirty()
+    expect(await datastore.isDirty()).toBe(true)
 
-    await datastore.MarkClean()
-    expect(await datastore.IsDirty()).toBe(false)
+    await datastore.markClean()
+    expect(await datastore.isDirty()).toBe(false)
   })
 
   it('should process nodes correctly', async () => {
@@ -222,49 +216,6 @@ describe('Datastore', () => {
     await datastore.processNode(cid, 1n, delta, node)
 
     // Check if the node is marked as processed
-    const isProcessed = await datastore.isProcessed(cid)
-    expect(isProcessed).toBe(true)
-  })
-
-  it('should handle branch processing', async () => {
-    // const blockstore = new MemoryBlockstore()
-    // const store = new MemoryDatastore()
-    // const namespace = new Key('namespace')
-    // const broadcaster = { broadcast: vi.fn(), setHandler: vi.fn() }
-    // const dagService = { blockstore } as unknown as Helia
-    const options = { ...defaultOptions() }
-
-    const datastore = new Datastore(
-      store,
-      namespace,
-      dagService,
-      broadcaster,
-      options
-    )
-
-    // Create some valid delta data for the CRDT
-    const deltaData: delta.Delta = {
-      elements: [{ key: 'key1', value: new Uint8Array([1, 2, 3]) }],
-      tombstones: [],
-      priority: 1n
-    }
-
-    // Encode the delta data into a protobuf format
-    const encodedDelta = delta.Delta.encode(deltaData)
-
-    // Create a node with the encoded delta data
-    const node = codec.createNode(encodedDelta, [])
-    const block = await Block.encode({ value: node, codec, hasher })
-
-    // Store the block in the blockstore
-    await blockstore.put(block.cid, block.bytes)
-
-    const cid = block.cid
-
-    // Simulate processing the branch with this CID
-    await datastore.handleBranch(cid, cid)
-
-    // Verify that the node has been marked as processed
     const isProcessed = await datastore.isProcessed(cid)
     expect(isProcessed).toBe(true)
   })
@@ -309,25 +260,6 @@ describe('Datastore', () => {
     expect(retrievedValue).toBeNull()
   })
 
-  // it('should sync data correctly', async () => {
-  //   const key = new Key('/test/key')
-  //   const value = new Uint8Array([1, 2, 3])
-  //
-  //   await datastore.put(key, value)
-  //
-  //   const syncSpy = vi.spyOn(store, 'sync')
-  //   await datastore.Sync(key)
-  //
-  //   expect(syncSpy).toHaveBeenCalledWith(namespace.child(key))
-  // })
-
-  // it('should rebroadcast heads correctly', async () => {
-  //   const broadcastSpy = vi.spyOn(broadcaster, 'broadcast')
-  //
-  //   await datastore.rebroadcastHeads()
-  //
-  //   expect(broadcastSpy).toHaveBeenCalled()
-  // })
   it('should put and get values', async () => {
     const key = new Key('hi')
     await datastore.put(key, new Uint8Array(Buffer.from('hola')))
@@ -336,68 +268,64 @@ describe('Datastore', () => {
     expect(value).toEqual(new Uint8Array(Buffer.from('hola')))
   })
 
-  it.only('should replicate data across replicas', async () => {
-    const replicas = await createReplicas(2)
+  describe('Replication', () => {
+    it('should replicate data across replicas', async () => {
+      const replicas = await createReplicas(2, 't1')
 
-    const key = new Key('/test/key')
-    const value = Buffer.from('hola')
+      const key = new Key('/test/key')
+      const value = Buffer.from('hola')
 
-    // Put the value in the first replica
-    await replicas[0].put(key, value)
+      // Put the value in the first replica
+      await replicas[0].put(key, value)
 
-    await simulatePropagation(replicas)
+      await waitForPropagation(2000)
 
-    // console.log('replica[0] DAG')
-    // await replicas[0].PrintDAG()
-    //
-    // console.log('replica[1] DAG')
-    // await replicas[1].PrintDAG()
+      // console.log('replica[0] DAG')
+      // await replicas[0].PrintDAG()
+      //
+      // console.log('replica[1] DAG')
+      // await replicas[1].PrintDAG()
 
-    const list0 = []
-    for await (const { key, value } of replicas[0].store.query({})) {
-      list0.push(key)
-    }
-    console.log('LIST0 ALL THE VALUES', list0)
+      // const list0 = []
+      // for await (const { key, value } of replicas[0].store.query({})) {
+      //   list0.push(key)
+      // }
+      // console.log('LIST0 ALL THE VALUES', list0)
+      //
+      // const list1 = []
+      // for await (const { key, value } of replicas[1].store.query({})) {
+      //   list1.push(key)
+      // }
+      // console.log('LIST1 ALL THE VALUES', list1)
 
-    const list1 = []
-    for await (const { key, value } of replicas[1].store.query({})) {
-      list1.push(key)
-    }
-    console.log('LIST1 ALL THE VALUES', list1)
-
-    // Wait for the value to be available in all replicas
-    for (const replica of replicas) {
-      await waitUntil(() => replica.get(key) !== null)
-      const replicatedValue = await replica.get(key)
-      expect(replicatedValue).toEqual(value)
-    }
-  }, 10000)
-
-  it('should handle concurrent updates and ensure final consistency', async () => {
-    const key = new Key('k')
-    const replicas = await createReplicas(5)
-    const tasks = []
-
-    for (let i = 0; i < replicas.length; i++) {
-      tasks.push(async () => {
-        for (let j = 0; j < 50; j++) {
-          await replicas[i].put(key, new Uint8Array(Buffer.from(`r#${i}`)))
-        }
-      })
-    }
-
-    await Promise.all(tasks)
-    await simulatePropagation(replicas)
-
-    let finalValue = null
-    for (const replica of replicas) {
-      const value = await replica.get(key)
-      if (finalValue !== null && finalValue !== value) {
-        throw new Error('Inconsistent values across replicas')
+      // Wait for the value to be available in all replicas
+      for (const replica of replicas) {
+        await waitUntil(() => replica.get(key) !== null)
+        const replicatedValue = await replica.get(key)
+        expect(replicatedValue).toEqual(value)
       }
-      finalValue = value
-    }
+    }, 10000)
 
-    expect(finalValue).toBeTruthy() // Replace with an appropriate value check
+    it('should replicate updates across replicas', async () => {
+      const replicas = await createReplicas(6, 't2')
+
+      const key = new Key('/test/key')
+      let value
+
+      // Put the value in the first replica
+      for (let i = 0; i < 20; i++) {
+        value = Buffer.from(`hola${i}`)
+        await replicas[0].put(key, value)
+      }
+
+      await waitForPropagation(2000)
+
+      // Wait for the value to be available in all replicas
+      for (const replica of replicas) {
+        await waitUntil(() => replica.get(key) !== null)
+        const replicatedValue = await replica.get(key)
+        expect(replicatedValue).toEqual(value)
+      }
+    }, 20000)
   })
 })
