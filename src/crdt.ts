@@ -85,7 +85,7 @@ export class Datastore {
   private readonly ctx: AbortController
   public options: Options
   private readonly prefixedLogger: ComponentLogger
-  private readonly logger: Logger
+  public readonly logger: Logger
   public readonly store: DSDatastore
   public readonly namespace: Key
   private readonly set: CRDTSet
@@ -796,7 +796,7 @@ export class Datastore {
     }
   }
 
-  public async InternalStats (): Promise<Stats> {
+  public async internalStats (): Promise<Stats> {
     const heads = await this.heads.list()
     return {
       heads: heads.heads,
