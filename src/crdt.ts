@@ -156,7 +156,7 @@ export class Datastore {
     } finally {
       setTimeout(() => {
         void this.scheduleDagWorker()
-      }, 1000)
+      }, 1)
     }
   }
 
@@ -169,7 +169,7 @@ export class Datastore {
     } finally {
       setTimeout(() => {
         void this.scheduleSendJobWorker()
-      }, 1000)
+      }, 1)
     }
   }
 
@@ -283,44 +283,40 @@ export class Datastore {
   }
 
   private async dagWorker (): Promise<void> {
-    while (true) {
-      const job = await this.dequeueJob()
-      if (job === null) return // Queue closed, exit the worker
+    const job = await this.dequeueJob()
+    if (job === null) return // Queue closed, exit the worker
 
-      try {
-        const children = await this.processNode(
+    try {
+      const children = await this.processNode(
+        job.root,
+        job.rootPrio,
+        job.delta,
+        job.node
+      )
+
+      await this.enqueueSendJobs(
+        new DagJob(
+          job.session,
+          job.nodeGetter,
           job.root,
           job.rootPrio,
           job.delta,
-          job.node
+          job.node,
+          children
         )
-
-        await this.enqueueSendJobs(
-          new DagJob(
-            job.session,
-            job.nodeGetter,
-            job.root,
-            job.rootPrio,
-            job.delta,
-            job.node,
-            children
-          )
-        )
-      } catch (error) {
-        this.logger.error(error)
-        await this.markDirty()
-        job.session.release()
-      }
+      )
+    } catch (error) {
+      this.logger.error(error)
+      await this.markDirty()
+      job.session.release()
     }
   }
 
   private async sendJobWorker (): Promise<void> {
-    while (true) {
-      const job = await this.dequeueSendJob()
-      if (job === null) return // Queue closed, exit the worker
+    const job = await this.dequeueSendJob()
+    if (job === null) return // Queue closed, exit the worker
 
-      await this.enqueueJob(job)
-    }
+    await this.enqueueJob(job)
   }
 
   private async repair (): Promise<void> {

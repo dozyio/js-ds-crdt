@@ -1,9 +1,10 @@
 {
   "name": "js-ds-crdt",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "main": "dist/lib/index.js",
   "license": "MIT",
   "type": "module",
+  "author": "dozyio",
   "types": "./dist/src/index.d.ts",
   "files": [
     "src",
@@ -27,20 +28,19 @@
     }
   },
   "scripts": {
+    "build": "aegir build",
     "test": "vitest run --hideSkippedTests --allowOnly",
     "test:bench": "vitest bench",
     "test:watch": "vitest",
-    "build": "aegir build",
-    "test2": "aegir test",
-    "test:node": "aegir test --target node",
-    "test:browser": "aegir test --target browser",
     "start": "node dist/src/example/index.js",
     "clean": "aegir clean",
     "generate": "protons ./src/pb/*.proto",
     "lint": "aegir lint",
     "format": "yarn format:write",
     "format:write": "yarn prettier --write --log-level warn .",
-    "format:check": "yarn prettier --list-different ."
+    "format:check": "yarn prettier --list-different .",
+    "npm:release": "aegir exec --bail false npm -- publish",
+    "release:rc": "aegir release-rc",
   },
   "devDependencies": {
     "@types/node": "^22.4.0",

@@ -80,10 +80,6 @@ export class Heads {
   }
 
   private async write (store: Datastore, c: CID, height: bigint): Promise<void> {
-    // const buf = new Uint8Array(8);
-    // const view = new DataView(buf.buffer);
-    // view.setUint32(0, height, true);
-
     const key = this.key(c) // Now includes the namespace
     this.logger(
       `Writing key: ${key.toString()}, CID: ${c.toString()}, height: ${height}`

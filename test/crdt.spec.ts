@@ -158,7 +158,7 @@ describe('Datastore', () => {
       // Put the value in the first replica
       await replicas[0].put(key, value)
 
-      await waitForPropagation(15000, replicas[1], key, value)
+      await waitForPropagation(2000, replicas[1], key, value)
 
       // console.log('replica[0] DAG')
       // await replicas[0].PrintDAG()
@@ -184,7 +184,7 @@ describe('Datastore', () => {
         const replicatedValue = await replica.get(key)
         expect(replicatedValue).toEqual(value)
       }
-    }, 10000)
+    }, 5000)
 
     it('should replicate updates across replicas', async () => {
       const replicas = await createReplicas(6, 't2')
@@ -198,7 +198,7 @@ describe('Datastore', () => {
         await replicas[0].put(key, value)
       }
 
-      await waitForPropagation(15000, replicas[replicas.length - 1], key, value)
+      await waitForPropagation(5000, replicas[replicas.length - 1], key, value)
 
       // Wait for the value to be available in all replicas
       for (const replica of replicas) {
@@ -206,7 +206,7 @@ describe('Datastore', () => {
         const replicatedValue = await replica.get(key)
         expect(replicatedValue).toEqual(value)
       }
-    }, 20000)
+    }, 6000)
 
     it('should replicate large data across replicas', async () => {
       const replicas = await createReplicas(3, 't4')
@@ -218,13 +218,13 @@ describe('Datastore', () => {
 
       await replicas[0].put(key, largeValue)
 
-      await waitForPropagation(15000, replicas[replicas.length - 1], key, largeValue)
+      await waitForPropagation(5000, replicas[replicas.length - 1], key, largeValue)
 
       for (const replica of replicas) {
         const replicatedValue = await replica.get(key)
         expect(replicatedValue).toEqual(largeValue)
       }
-    }, 20000)
+    }, 6000)
 
     it('should delete data across replicas', async () => {
       const replicas = await createReplicas(3, 't8')
@@ -234,7 +234,7 @@ describe('Datastore', () => {
 
       await replicas[0].put(key, value)
 
-      await waitForPropagation(4000, replicas[replicas.length - 1], key, value)
+      await waitForPropagation(2000, replicas[replicas.length - 1], key, value)
 
       // Delete the value from the first replica
       await replicas[0].delete(key)
@@ -245,7 +245,7 @@ describe('Datastore', () => {
         const deletedValue = await replica.get(key)
         expect(deletedValue).toBeNull()
       }
-    }, 10000)
+    }, 8000)
   })
 
   // describe('Interop', () => {
