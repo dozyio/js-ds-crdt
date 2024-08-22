@@ -119,7 +119,7 @@ export class Datastore {
     this.sendJobs = []
     this.queuedChildren = new CidSafeSet()
 
-    debug.enable(`${this.options.loggerPrefix}*`) // 'crdt*,*crdt:trace')
+    // debug.enable(`${this.options.loggerPrefix}*`) // 'crdt*,*crdt:trace')
     // this.logger('test')
     // this.logger.error('error test')
     // this.logger.trace('trace test')

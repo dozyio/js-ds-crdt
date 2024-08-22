@@ -28,6 +28,7 @@
   },
   "scripts": {
     "test": "vitest run --hideSkippedTests --allowOnly",
+    "test:bench": "vitest bench",
     "test:watch": "vitest",
     "build": "aegir build",
     "test2": "aegir test",
