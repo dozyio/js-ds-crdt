@@ -19,6 +19,7 @@ import debug from 'weald'
 import { Datastore, type MyLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
 import type { Libp2p, Message, SignedMessage } from '@libp2p/interface'
+import type { Multiaddr } from '@multiformats/multiaddr'
 
 export async function msgIdFnStrictNoSign (msg: Message): Promise<Uint8Array> {
   const signedMessage = msg as SignedMessage
@@ -27,6 +28,17 @@ export async function msgIdFnStrictNoSign (msg: Message): Promise<Uint8Array> {
   )
 
   return hasher.encode(encodedSeqNum)
+}
+
+async function waitUntilAsync (condition: () => Promise<boolean>, timeout = 5000, checkInterval = 10): Promise<void> {
+  const start = Date.now()
+  while (Date.now() - start < timeout) {
+    if (await condition()) {
+      return
+    }
+    await new Promise(resolve => setTimeout(resolve, checkInterval))
+  }
+  throw new Error('Condition not met within timeout')
 }
 
 async function waitUntil (condition: () => boolean, timeout = 1000): Promise<void> {
@@ -122,21 +134,28 @@ async function createReplicas (count: number, topic: string = 'test', connectTo?
     }
   }
 
-  if (connectTo) {
+  if (connectTo !== undefined) {
     await replicas[0].dagService.libp2p.dial(connectTo)
   }
 
   for (let i = 0; i < count; i++) {
     await waitUntil(() => replicas[i].broadcaster.getSubscribers().length > 0, 5000)
-    console.log(`replica ${i} subscribers`, replicas[i].broadcaster.getSubscribers())
+    // console.log(`replica ${i} subscribers`, replicas[i].broadcaster.getSubscribers())
   }
 
   return replicas
 }
 
-async function waitForPropagation (delay = 2000): Promise<void> {
-  // This could be a simple delay or a more sophisticated simulation
-  await new Promise((resolve) => setTimeout(resolve, delay))
+async function waitForPropagation (delay = 2000, replica?: Datastore, expectedKey?: Key, expectedValue?: Uint8Array): Promise<void> {
+  if (replica != null && expectedKey != null && expectedValue != null) {
+    await waitUntilAsync(async () => {
+      const res = await replica.get(expectedKey)
+      return res !== null && res.length === expectedValue.length && res.every((value, index) => value === expectedValue[index])
+    }, delay, 100)
+  } else {
+    // This could be a simple delay or a more sophisticated simulation
+    await new Promise((resolve) => setTimeout(resolve, delay))
+  }
 }
 
 describe('Datastore', () => {
@@ -284,7 +303,7 @@ describe('Datastore', () => {
       // Put the value in the first replica
       await replicas[0].put(key, value)
 
-      await waitForPropagation(2000)
+      await waitForPropagation(15000, replicas[1], key, value)
 
       // console.log('replica[0] DAG')
       // await replicas[0].PrintDAG()
@@ -324,7 +343,7 @@ describe('Datastore', () => {
         await replicas[0].put(key, value)
       }
 
-      await waitForPropagation(2000)
+      await waitForPropagation(15000, replicas[replicas.length - 1], key, value)
 
       // Wait for the value to be available in all replicas
       for (const replica of replicas) {
@@ -333,57 +352,96 @@ describe('Datastore', () => {
         expect(replicatedValue).toEqual(value)
       }
     }, 20000)
-  })
 
-  describe('Interop', () => {
-    it('should replicate data to Go', async () => {
-      debug.enable('*') // 'crdt*,*crdt:trace')
-      const remote = '/ip4/127.0.0.1/tcp/49477/p2p/12D3KooWEkgRTTXGsmFLBembMHxVPDcidJyqFcrqbm9iBE1xhdXq'
-      const ma = multiaddr(remote)
+    it('should replicate large data across replicas', async () => {
+      const replicas = await createReplicas(3, 't4')
 
-      const replicas = await createReplicas(1, 'globaldb-example', ma)
+      const key = new Key('/test/large')
+      const sizeInBytes = 1024 * 1024 // 1 MB
+      const asciiValue = 97 // ASCII value of 'a'
+      const largeValue = new Uint8Array(sizeInBytes).fill(asciiValue)
 
-      for (let i = 0; i < 500; i++) {
-        const key = new Key(`/test/key${i}`)
-        const value = Buffer.from(`hola${i}`)
-        await replicas[0].put(key, value)
+      await replicas[0].put(key, largeValue)
+
+      await waitForPropagation(15000, replicas[replicas.length - 1], key, largeValue)
+
+      for (const replica of replicas) {
+        const replicatedValue = await replica.get(key)
+        expect(replicatedValue).toEqual(largeValue)
       }
-
-      await waitForPropagation(10000)
-
-      // console.log('replica[0] DAG')
-      // await replicas[0].printDAG()
-
-      // const list0 = []
-      // for await (const { key, value } of replicas[0].store.query({})) {
-      //   list0.push(key)
-      // }
-      // console.log('LIST0 ALL THE VALUES', list0)
-
-      expect(true).toEqual(true)
     }, 20000)
 
-    it.skip('should wait for propagation from 3rd party', async () => {
-      debug.enable('*') // 'crdt*,*crdt:trace')
-      const remote = '/ip4/127.0.0.1/tcp/49477/p2p/12D3KooWEkgRTTXGsmFLBembMHxVPDcidJyqFcrqbm9iBE1xhdXq'
-      const ma = multiaddr(remote)
+    it('should delete data across replicas', async () => {
+      const replicas = await createReplicas(3, 't8')
 
-      const replicas = await createReplicas(1, 'globaldb-example', ma)
+      const key = new Key('/test/delete')
+      const value = Buffer.from('to be deleted')
 
-      await waitForPropagation(15000)
+      await replicas[0].put(key, value)
 
-      // console.log('replica[0] DAG')
-      // await replicas[0].printDAG()
+      await waitForPropagation(4000, replicas[replicas.length - 1], key, value)
 
-      const stats = await replicas[0].internalStats()
+      // Delete the value from the first replica
+      await replicas[0].delete(key)
 
-      replicas[0].logger(`Number of heads: ${stats.heads.length}`)
-      replicas[0].logger(`Max height: ${stats.maxHeight}`)
-      replicas[0].logger(`Queued jobs: ${stats.queuedJobs}`)
-      replicas[0].logger(`Dirty: ${await replicas[0].isDirty()}`)
+      await waitForPropagation(2000)
 
-
-      expect(true).toEqual(true)
-    }, 20000)
+      for (const replica of replicas) {
+        const deletedValue = await replica.get(key)
+        expect(deletedValue).toBeNull()
+      }
+    }, 10000)
   })
+
+  // describe('Interop', () => {
+  //   it('should replicate data to Go', async () => {
+  //     debug.enable('*') // 'crdt*,*crdt:trace')
+  //     const remote = '/ip4/127.0.0.1/tcp/49477/p2p/12D3KooWEkgRTTXGsmFLBembMHxVPDcidJyqFcrqbm9iBE1xhdXq'
+  //     const ma = multiaddr(remote)
+  //
+  //     const replicas = await createReplicas(1, 'globaldb-example', ma)
+  //
+  //     for (let i = 0; i < 500; i++) {
+  //       const key = new Key(`/test/key${i}`)
+  //       const value = Buffer.from(`hola${i}`)
+  //       await replicas[0].put(key, value)
+  //     }
+  //
+  //     await waitForPropagation(10000)
+  //
+  //     // console.log('replica[0] DAG')
+  //     // await replicas[0].printDAG()
+  //
+  //     // const list0 = []
+  //     // for await (const { key, value } of replicas[0].store.query({})) {
+  //     //   list0.push(key)
+  //     // }
+  //     // console.log('LIST0 ALL THE VALUES', list0)
+  //
+  //     expect(true).toEqual(true)
+  //   }, 20000)
+  //
+  //   it.skip('should wait for propagation from 3rd party', async () => {
+  //     debug.enable('*') // 'crdt*,*crdt:trace')
+  //     const remote = '/ip4/127.0.0.1/tcp/49477/p2p/12D3KooWEkgRTTXGsmFLBembMHxVPDcidJyqFcrqbm9iBE1xhdXq'
+  //     const ma = multiaddr(remote)
+  //
+  //     const replicas = await createReplicas(1, 'globaldb-example', ma)
+  //
+  //     await waitForPropagation(15000)
+  //
+  //     // console.log('replica[0] DAG')
+  //     // await replicas[0].printDAG()
+  //
+  //     const stats = await replicas[0].internalStats()
+  //
+  //     replicas[0].logger(`Number of heads: ${stats.heads.length}`)
+  //     replicas[0].logger(`Max height: ${stats.maxHeight}`)
+  //     replicas[0].logger(`Queued jobs: ${stats.queuedJobs}`)
+  //     replicas[0].logger(`Dirty: ${await replicas[0].isDirty()}`)
+  //
+  //
+  //     expect(true).toEqual(true)
+  //   }, 20000)
+  // })
 })
