@@ -39,8 +39,8 @@
     "format": "yarn format:write",
     "format:write": "yarn prettier --write --log-level warn .",
     "format:check": "yarn prettier --list-different .",
-    "npm:release": "aegir exec --bail false npm -- publish",
-    "release:rc": "aegir release-rc",
+    "release": "aegir release",
+    "release:rc": "aegir release-rc"
   },
   "devDependencies": {
     "@types/node": "^22.4.0",
@@ -73,12 +73,12 @@
     "@libp2p/webtransport": "^4.1.7",
     "async-mutex": "^0.5.0",
     "bloom-filters": "^3.0.2",
-    "cid": "multiformats/cid",
     "datastore-core": "^10.0.0",
     "helia": "^4.2.5",
     "interface-blockstore": "^5.3.0",
     "interface-datastore": "^8.3.0",
     "libp2p": "^1.9.2",
+    "multiformats": "^13.2.2",
     "protons-runtime": "^5.5.0",
     "weald": "^1.0.2"
   }
