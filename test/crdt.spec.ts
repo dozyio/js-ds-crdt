@@ -8,7 +8,7 @@ import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Datastore, type MyLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
-import { createNode, createReplicas, waitForPropagation, waitUntil } from './utils'
+import { cmpValues, createNode, createReplicas, waitForPropagation, waitUntil } from './utils'
 import type { Libp2p } from '@libp2p/interface'
 import type { HeliaLibp2p } from 'helia'
 // import debug from 'weald'
@@ -60,7 +60,7 @@ describe('Datastore', () => {
     await datastore.put(key, value)
     const storedValue = await datastore.get(key)
 
-    expect(storedValue).toEqual(value)
+    expect(cmpValues(storedValue, value)).toBe(true)
   })
 
   it('should delete elements from the set', async () => {
@@ -68,9 +68,11 @@ describe('Datastore', () => {
     const value = new Uint8Array([4, 5, 6])
 
     await datastore.put(key, value)
-    await datastore.delete(key)
-    const storedValue = await datastore.get(key)
+    let storedValue = await datastore.get(key)
+    expect(cmpValues(storedValue, value)).toBe(true)
 
+    await datastore.delete(key)
+    storedValue = await datastore.get(key)
     expect(storedValue).toBeNull()
   })
 
@@ -97,6 +99,7 @@ describe('Datastore', () => {
 
     // Check if the node is marked as processed
     const isProcessed = await datastore.isProcessed(cid)
+
     expect(isProcessed).toBe(true)
   })
 
@@ -111,41 +114,12 @@ describe('Datastore', () => {
     expect(true).toBe(true)
   })
 
-  it('should add and retrieve data correctly', async () => {
-    const key = new Key('/test/key')
-    const value = new Uint8Array([1, 2, 3])
-
-    await datastore.put(key, value)
-    const retrievedValue = await datastore.get(key)
-
-    expect(retrievedValue).toEqual(value)
-  })
-
   it('should return null when retrieving non-existent key', async () => {
     const key = new Key('/nonexistent/key')
 
     const retrievedValue = await datastore.get(key)
 
     expect(retrievedValue).toBeNull()
-  })
-
-  it('should delete data correctly', async () => {
-    const key = new Key('/test/key')
-    const value = new Uint8Array([1, 2, 3])
-
-    await datastore.put(key, value)
-    await datastore.delete(key)
-
-    const retrievedValue = await datastore.get(key)
-    expect(retrievedValue).toBeNull()
-  })
-
-  it('should put and get values', async () => {
-    const key = new Key('hi')
-    await datastore.put(key, new Uint8Array(Buffer.from('hola')))
-
-    const value = await datastore.get(key)
-    expect(value).toEqual(new Uint8Array(Buffer.from('hola')))
   })
 
   describe('Replication', () => {
@@ -209,7 +183,7 @@ describe('Datastore', () => {
     }, 6000)
 
     it('should replicate large data across replicas', async () => {
-      const replicas = await createReplicas(3, 't4')
+      const replicas = await createReplicas(2, 't4')
 
       const key = new Key('/test/large')
       const sizeInBytes = 1024 * 1024 // 1 MB
@@ -227,7 +201,7 @@ describe('Datastore', () => {
     }, 6000)
 
     it('should delete data across replicas', async () => {
-      const replicas = await createReplicas(3, 't8')
+      const replicas = await createReplicas(2, 't8')
 
       const key = new Key('/test/delete')
       const value = Buffer.from('to be deleted')

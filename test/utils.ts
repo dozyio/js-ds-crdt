@@ -153,3 +153,27 @@ export async function waitForPropagation (delay = 2000, replica?: Datastore, exp
     await new Promise((resolve) => setTimeout(resolve, delay))
   }
 }
+
+export function cmpValues (a: Uint8Array | null, b: Uint8Array | null): boolean {
+  if (a === null && b === null) {
+    return true
+  }
+
+  if ((a === null && b !== null) || (a !== null && b === null)) {
+    return false
+  }
+
+  if (a !== null && b !== null) {
+    if (a.length !== b.length) {
+      return false
+    }
+
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        return false
+      }
+    }
+  }
+
+  return true
+}
