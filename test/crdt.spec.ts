@@ -1,11 +1,13 @@
 import * as codec from '@ipld/dag-pb'
 import { prefixLogger } from '@libp2p/logger'
 import { MemoryDatastore } from 'datastore-core/memory'
+// import delay from 'delay'
 import { Key } from 'interface-datastore'
 import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { describe, it, expect, beforeEach } from 'vitest'
+// import debug from 'weald'
 import { CRDTDatastore, type CRDTLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
 import {
@@ -17,7 +19,8 @@ import {
 } from './utils'
 import type { Libp2p } from '@libp2p/interface'
 import type { HeliaLibp2p } from 'helia'
-// import debug from 'weald'
+
+// debug.enable('crdt*')
 
 describe('Datastore', () => {
   let store: MemoryDatastore
@@ -168,6 +171,12 @@ describe('Datastore', () => {
         const replicatedValue = await replica.get(key)
         expect(cmpValues(replicatedValue, value)).toBe(true)
       }
+
+      // replicas[0].logger('DAG')
+      // await replicas[0].printDAG()
+      //
+      // replicas[1].logger('DAG')
+      // await replicas[1].printDAG()
     }, 5000)
 
     it('should replicate updates across replicas', async () => {

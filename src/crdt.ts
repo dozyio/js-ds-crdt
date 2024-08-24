@@ -279,14 +279,6 @@ export class CRDTDatastore {
     this.jobQueue.push(job)
   }
 
-  private async enqueueSendJobs (job: DagJob): Promise<void> {
-    if (this.ctx.signal.aborted) {
-      return
-    }
-
-    this.sendJobs.push(job)
-  }
-
   private async dequeueJob (): Promise<DagJob | null> {
     const job = this.jobQueue.length > 0 ? this.jobQueue.shift() : undefined
     return job ?? null
@@ -299,37 +291,41 @@ export class CRDTDatastore {
 
   private async dagWorker (): Promise<void> {
     const job = await this.dequeueJob()
-    if (job === null) return // Queue closed, exit the worker
+    if (job === null) return
 
+    let children: CID[]
     try {
-      const children = await this.processNode(
+      children = await this.processNode(
         job.root,
         job.rootPrio,
         job.delta,
         job.node
       )
+    } catch (err: any) {
+      this.logger.error(`Error processing node: ${err}`)
+      await this.markDirty()
+      job.session.release()
+      return
+    }
 
-      await this.enqueueSendJobs(
-        new DagJob(
-          job.session,
-          job.nodeGetter,
-          job.root,
-          job.rootPrio,
-          job.delta,
-          job.node,
-          children
-        )
+    try {
+      await this.sendNewJobs(
+        job.session,
+        job.nodeGetter,
+        job.root,
+        job.rootPrio,
+        children
       )
     } catch (error) {
       this.logger.error(error)
       await this.markDirty()
-      job.session.release()
     }
+    job.session.release()
   }
 
   private async sendJobWorker (): Promise<void> {
     const job = await this.dequeueSendJob()
-    if (job === null) return // Queue closed, exit the worker
+    if (job === null) return
 
     await this.enqueueJob(job)
   }
@@ -488,12 +484,16 @@ export class CRDTDatastore {
   }
 
   private async handleBlock (c: CID): Promise<void> {
-    this.logger('handling block', c.toString())
-    const isProcessed = await this.isProcessed(c)
-    if (isProcessed) {
-      // this.logger.trace(`${c} is known. Skip walking tree`)
-      this.logger(`${c} is known. Skip walking tree`)
-      return
+    // this.logger('handling block', c.toString())
+    try {
+      const isProcessed = await this.isProcessed(c)
+      if (isProcessed) {
+        // this.logger(`${c} is known. Skip walking tree`)
+        return
+      }
+    } catch (err) {
+      this.logger.error(`Error checking if block ${c} is processed: ${err}`)
+      throw err
     }
 
     await this.handleBranch(c, c)
@@ -579,7 +579,8 @@ export class CRDTDatastore {
 
   public async isProcessed (c: CID): Promise<boolean> {
     const key = this.processedBlockKey(c)
-    return this.store.has(key)
+    const isProcessed = await this.store.has(key)
+    return isProcessed
   }
 
   private processedBlockKey (c: CID): Key {
@@ -589,9 +590,13 @@ export class CRDTDatastore {
   }
 
   private async markProcessed (c: CID): Promise<void> {
-    this.logger('marking processed', c.toString())
-    const key = this.processedBlockKey(c)
-    await this.store.put(key, new Uint8Array())
+    try {
+      const key = this.processedBlockKey(c)
+      await this.store.put(key, new Uint8Array())
+    } catch (err) {
+      this.logger.error(`Error marking block ${c} as processed: ${err}`)
+      throw err
+    }
   }
 
   public async get (key: Key): Promise<Uint8Array | null> {
@@ -619,19 +624,35 @@ export class CRDTDatastore {
   }
 
   private async addDAGNode (delta: dpb.delta.Delta): Promise<CID> {
-    this.logger('adding dag node')
-    const heads = await this.heads.list()
+    let heads
+    try {
+      heads = await this.heads.list()
+    } catch (err) {
+      this.logger.error(`Error getting heads: ${err}`)
+      throw err
+    }
+
     const height = heads.maxHeight + 1n
 
     delta.priority = height
 
-    const nd = await this.putBlock(heads.heads, height, delta)
+    let nd
+    try {
+      nd = await this.putBlock(heads.heads, height, delta)
+    } catch (err) {
+      this.logger.error(`Error putting block: ${err}`)
+      throw err
+    }
 
     const value = createNode(nd.Data ?? new Uint8Array(), nd.Links)
     const block = await Block.encode({ value, codec, hasher })
 
+    let children: CID[]
     try {
-      await this.processNode(block.cid, height, delta, nd)
+      children = await this.processNode(block.cid, height, delta, nd)
+      if (children.length !== 0) {
+        this.logger('bug: created a block to unknown children')
+      }
     } catch (err: any) {
       this.logger.error(`Error processing node ${block.cid}: ${err}`)
       await this.markDirty()
@@ -665,7 +686,6 @@ export class CRDTDatastore {
     delta: dpb.delta.Delta,
     node: dagPb.PBNode
   ): Promise<CID[]> {
-    this.logger('processing node')
     const value = createNode(node.Data ?? new Uint8Array(), node.Links)
     const block = await Block.encode({ value, codec, hasher })
 
@@ -675,17 +695,32 @@ export class CRDTDatastore {
     try {
       // First, merge the delta in this node.
       await this.set.merge(delta, blockKey)
+    } catch (err: any) {
+      this.logger.error(`Error merging delta: ${err}`)
+      return []
+    }
 
+    try {
       // Record that we have processed the node so that any other worker can skip it.
       await this.markProcessed(current)
+    } catch (err: any) {
+      this.logger.error(`Error marking processed: ${err}`)
+      return []
+    }
 
-      // Remove from the set that has the children which are queued for processing.
+    // Remove from the set that has the children which are queued for processing.
+    try {
       this.queuedChildren.remove(block.cid)
+    } catch (err: any) {
+      this.logger.error(`Error removing from queuedChildren: ${err}`)
+      return []
+    }
 
-      this.logger(
-        `Merged delta from node ${current} (priority: ${delta.priority})`
-      )
+    this.logger(
+      `Merged delta from node ${current} (priority: ${delta.priority})`
+    )
 
+    try {
       const links = node.Links
       const children: CID[] = []
 
@@ -706,6 +741,7 @@ export class CRDTDatastore {
         const isProcessed = await this.isProcessed(child)
 
         if (isHead) {
+          this.logger('isHead', child.toString())
           // Reached one of the current heads. Replace it with the tip of this branch.
           await this.heads.replace(child, root, rootPrio)
           addedAsHead = true
@@ -718,7 +754,7 @@ export class CRDTDatastore {
 
         // If the child has already been processed or someone else has reserved it for processing,
         // then we can make ourselves a head right away because we are not meant to replace an existing head.
-        if (isProcessed || !this.queuedChildren.has(child)) {
+        if (isProcessed || !this.queuedChildren.visit(child)) {
           if (!addedAsHead) {
             // eslint-disable-next-line max-depth
             try {
@@ -912,7 +948,7 @@ class DagJob {
     public delta: dpb.delta.Delta,
     public node: dagPb.PBNode,
     public children: CID[]
-  ) {}
+  ) { }
 }
 
 class CidSafeSet {
@@ -938,7 +974,7 @@ class CidSafeSet {
 }
 
 class DatastoreBatch implements DSBatch {
-  constructor (private readonly store: CRDTDatastore) {}
+  constructor (private readonly store: CRDTDatastore) { }
 
   async put (key: Key, value: Uint8Array): Promise<void> {
     const size = await this.store.addToDelta(key.toString(), value)

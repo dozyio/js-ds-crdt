@@ -1,6 +1,6 @@
 {
   "name": "js-ds-crdt",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "main": "dist/lib/index.js",
   "license": "MIT",
   "type": "module",
@@ -44,6 +44,7 @@
     "@types/node": "^22.4.0",
     "aegir": "^44.1.1",
     "blockstore-core": "^5.0.0",
+    "delay": "^6.0.0",
     "eslint-plugin-n": "^17.10.2",
     "prettier": "^3.3.3",
     "protobufjs": "^7.3.2",
