@@ -1,4 +1,4 @@
-export { CRDTDatastore } from './crdt'
+export { CRDTDatastore, defaultOptions } from './crdt'
 export { PubSubBroadcaster } from './pubsub_broadcaster'
 export { Heads } from './heads'
 export { CRDTNodeGetter } from './ipld'
