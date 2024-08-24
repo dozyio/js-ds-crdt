@@ -49,7 +49,7 @@ interface Broadcaster {
 //   session(context: AbortSignal): DAGService;
 // }
 
-interface Options {
+export interface Options {
   loggerPrefix: string // ComponentLogger
   rebroadcastInterval: number
   bloomFilter?: IBloomFilter
@@ -78,14 +78,15 @@ export function defaultOptions (): Options {
   return {
     loggerPrefix: 'crdt',
     rebroadcastInterval: 5000, // 5 seconds in milliseconds
-    numWorkers: 5,
+    bloomFilter: undefined,
+    putHook: undefined,
+    deleteHook: undefined,
+    numWorkers: 1,
     dagSyncerTimeout: 300000, // 5 minutes in milliseconds
     maxBatchDeltaSize: 1048576, // 1MB
     repairInterval: 3600000, // 1 hour in milliseconds
     logInterval: 60000, // 1 minute in milliseconds
-    multiHeadProcessing: false,
-    putHook: undefined,
-    deleteHook: undefined
+    multiHeadProcessing: false
   }
 }
 

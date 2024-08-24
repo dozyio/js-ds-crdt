@@ -5,4 +5,4 @@ export { CRDTNodeGetter } from './ipld'
 export { CRDTSet } from './set'
 export { msgIdFnStrictNoSign } from './utils'
 
-export type { CRDTLibp2pServices } from './crdt'
+export type { CRDTLibp2pServices, Options } from './crdt'
