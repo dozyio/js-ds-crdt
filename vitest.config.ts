@@ -6,6 +6,6 @@ export default defineConfig({
     benchmark: {
       include: ['test/**/*.bench.ts']
     },
-    globals: true,
-  },
+    globals: true
+  }
 })

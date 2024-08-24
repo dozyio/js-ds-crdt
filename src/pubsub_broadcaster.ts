@@ -37,7 +37,6 @@ export class PubSubBroadcaster {
     this.libp2p.services.pubsub.addEventListener(
       'message',
       (evt: CustomEvent<Message>) => {
-        // eslint-disable-next-line no-console
         this.logger('evt', evt)
         const message = evt.detail
         const data = message.data // assuming message.data is the Uint8Array

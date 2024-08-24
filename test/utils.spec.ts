@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
-import { CID } from 'multiformats/cid'
 import { base32 } from 'multiformats/bases/base32'
+import { CID } from 'multiformats/cid'
 import * as multihash from 'multiformats/hashes/digest'
+import { describe, it, expect } from 'vitest'
 import {
   newKeyFromBinary,
   multihashToDsKey,
@@ -9,13 +9,13 @@ import {
   dsKeyToMultihash,
   dsKeyToCidV1,
   bigintToUint8Array,
-  arrayBufferToBigInt,
+  arrayBufferToBigInt
 } from '../src/utils' // Adjust the import path as necessary
 
 describe('utils.ts', () => {
   it('should create a valid Key from a raw multihash using newKeyFromBinary', () => {
     const rawKey = new Uint8Array([
-      0x12, 0x20, 0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02,
+      0x12, 0x20, 0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02
     ])
     const key = newKeyFromBinary(rawKey)
     const expectedKeyStr = `/${base32.encode(rawKey).toUpperCase()}`
@@ -26,8 +26,8 @@ describe('utils.ts', () => {
     const digest = multihash.create(
       0x12,
       new Uint8Array([
-        0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02,
-      ]),
+        0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02
+      ])
     )
     const key = multihashToDsKey(digest.bytes)
     const expectedKeyStr = `/${base32.encode(digest.bytes).toUpperCase()}`
@@ -36,7 +36,7 @@ describe('utils.ts', () => {
 
   it('should correctly decode a Key to its original multihash using binaryFromDsKey', () => {
     const rawKey = new Uint8Array([
-      0x12, 0x20, 0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02,
+      0x12, 0x20, 0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02
     ])
     const key = newKeyFromBinary(rawKey)
     const decoded = binaryFromDsKey(key)
@@ -47,8 +47,8 @@ describe('utils.ts', () => {
     const digest = multihash.create(
       0x12,
       new Uint8Array([
-        0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02,
-      ]),
+        0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02
+      ])
     )
     const key = multihashToDsKey(digest.bytes)
     const multihashDigest = dsKeyToMultihash(key)
@@ -60,8 +60,8 @@ describe('utils.ts', () => {
     const digest = multihash.create(
       0x12,
       new Uint8Array([
-        0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02,
-      ]),
+        0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02
+      ])
     )
     const key = multihashToDsKey(digest.bytes)
     const cid = dsKeyToCidV1(key, 0x70)
@@ -74,7 +74,7 @@ describe('bigintToUint8Array', () => {
   it('should convert a BigInt to a Uint8Array in little-endian', () => {
     const input = BigInt('0x0123456789abcdef')
     const expected = new Uint8Array([
-      0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
+      0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01
     ])
     const result = bigintToUint8Array(input)
     expect(result).toEqual(expected)
@@ -91,7 +91,7 @@ describe('bigintToUint8Array', () => {
     const input = BigInt('0x1234567890abcdef1234567890abcdef')
     const expected = new Uint8Array([
       0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12, 0xef, 0xcd, 0xab, 0x90,
-      0x78, 0x56, 0x34, 0x12,
+      0x78, 0x56, 0x34, 0x12
     ])
     const result = bigintToUint8Array(input)
     expect(result).toEqual(expected)
@@ -122,7 +122,7 @@ describe('bigintToUint8Array', () => {
 describe('arrayBufferToBigInt', () => {
   it('should convert a Uint8Array to a BigInt in little-endian', () => {
     const input = new Uint8Array([
-      0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
+      0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01
     ]).buffer
     const expected = BigInt('0x0123456789abcdef')
     const result = arrayBufferToBigInt(input)
@@ -132,7 +132,7 @@ describe('arrayBufferToBigInt', () => {
   it('should convert a large Uint8Array to a BigInt', () => {
     const input = new Uint8Array([
       0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12, 0xef, 0xcd, 0xab, 0x90,
-      0x78, 0x56, 0x34, 0x12,
+      0x78, 0x56, 0x34, 0x12
     ]).buffer
     const expected = BigInt('0x1234567890abcdef1234567890abcdef')
     const result = arrayBufferToBigInt(input)
@@ -156,7 +156,7 @@ describe('arrayBufferToBigInt', () => {
   it('should handle round-trip conversion', () => {
     const input = new Uint8Array([
       0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12, 0xef, 0xcd, 0xab, 0x90,
-      0x78, 0x56, 0x34, 0x12,
+      0x78, 0x56, 0x34, 0x12
     ]).buffer
     const bigIntValue = arrayBufferToBigInt(input)
     const uint8Array = bigintToUint8Array(bigIntValue)

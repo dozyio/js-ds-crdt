@@ -1,6 +1,6 @@
 import { Mutex } from 'async-mutex'
-import { BloomFilter } from 'bloom-filters'
 import { type Datastore, Key, type Pair, type Query } from 'interface-datastore'
+import { compareUint8Arrays } from './utils'
 import type * as pb from './pb/delta'
 import type { Logger } from '@libp2p/logger'
 
@@ -12,8 +12,14 @@ const valueSuffix = 'v'
 const prioritySuffix = 'p'
 
 // Define Bloom filter options
-const TombstonesBloomFilterSize = 30 * 1024 * 1024 * 8 // 30 MiB
-const TombstonesBloomFilterHashes = 2
+// const TombstonesBloomFilterSize = 30 * 1024 * 1024 * 8 // 30 MiB
+// const TombstonesBloomFilterHashes = 2
+// https://github.com/Callidon/bloom-filters/pull/71
+
+export interface IBloomFilter {
+  add(key: string): void
+  has(key: string): boolean
+}
 
 export class CRDTSet {
   private readonly store: Datastore
@@ -22,12 +28,13 @@ export class CRDTSet {
   private readonly deleteHook?: (key: string) => void
   private readonly logger: Logger
   private readonly putElemsMux: Mutex
-  private readonly tombstonesBloom: BloomFilter
+  private readonly tombstonesBloom?: IBloomFilter
 
   constructor (
     store: Datastore,
     namespace: Key,
     logger: Logger,
+    tombstonesBloom?: IBloomFilter,
     putHook?: (key: string, value: Uint8Array) => void,
     deleteHook?: (key: string) => void
   ) {
@@ -37,18 +44,26 @@ export class CRDTSet {
     this.putHook = putHook
     this.deleteHook = deleteHook
     this.putElemsMux = new Mutex()
-    this.tombstonesBloom = new BloomFilter(
-      TombstonesBloomFilterSize,
-      TombstonesBloomFilterHashes
-    )
+    this.tombstonesBloom = tombstonesBloom
 
-    this.primeBloomFilter().catch((err: any) => {
-      throw err
-    })
+    // this.tombstonesBloom = new BloomFilter(
+    //   TombstonesBloomFilterSize,
+    //   TombstonesBloomFilterHashes
+    // )
+
+    if (this.tombstonesBloom !== undefined) {
+      this.primeBloomFilter().catch((err: any) => {
+        throw err
+      })
+    }
   }
 
   // Prime the Bloom filter with existing tombstones
   private async primeBloomFilter (): Promise<void> {
+    if (this.tombstonesBloom === undefined) {
+      return
+    }
+
     const tombsPrefix = this.keyPrefix(tombsNs)
     const q: Query = {
       prefix: tombsPrefix.toString()
@@ -234,8 +249,10 @@ export class CRDTSet {
 
   // Check if a key is not tombstoned
   private async checkNotTombstoned (key: string): Promise<boolean> {
-    if (!this.tombstonesBloom.has(key)) {
-      return true
+    if (this.tombstonesBloom !== undefined) {
+      if (!this.tombstonesBloom.has(key)) {
+        return true
+      }
     }
 
     const prefix = this.elemsPrefix(key)
@@ -272,7 +289,7 @@ export class CRDTSet {
     if (
       prio > curPrio ||
       (prio === curPrio &&
-        Buffer.compare(value, await this.store.get(this.valueKey(key))) > 0)
+        compareUint8Arrays(value, await this.store.get(this.valueKey(key))) > 0)
     ) {
       // New priority is higher, or priorities are equal but value is lexicographically greater
       await writeStore.put(this.valueKey(key), value)
@@ -363,7 +380,10 @@ export class CRDTSet {
       const k = this.tombsPrefix(elemKey).child(new Key(tomb.id))
       await store.put(k, new Uint8Array())
 
-      this.tombstonesBloom.add(elemKey)
+      if (this.tombstonesBloom !== undefined) {
+        this.tombstonesBloom.add(elemKey)
+      }
+
       if (this.deleteHook !== undefined) {
         this.deleteHook(elemKey)
       }

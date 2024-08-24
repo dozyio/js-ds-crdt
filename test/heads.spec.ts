@@ -1,9 +1,9 @@
-import { CID } from 'multiformats/cid'
-import { Key } from 'interface-datastore'
-import { MemoryDatastore } from 'datastore-core'
-import type { Datastore } from 'interface-datastore'
 import { logger } from '@libp2p/logger'
+import { MemoryDatastore } from 'datastore-core'
+import { Key } from 'interface-datastore'
+import { CID } from 'multiformats/cid'
 import { Heads } from '../src/heads' // Assuming the class is in heads.ts
+import type { Datastore } from 'interface-datastore'
 
 describe('Heads', () => {
   let store: Datastore
@@ -21,10 +21,10 @@ describe('Heads', () => {
 
     // Create some sample CIDs for testing
     cid1 = CID.parse(
-      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku',
+      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku'
     )
     cid2 = CID.parse(
-      'bafybeigdyrztg6nbv3f2vzk3euvr63zjkvqlukmhhojz6kmiy7m7xvlhvq',
+      'bafybeigdyrztg6nbv3f2vzk3euvr63zjkvqlukmhhojz6kmiy7m7xvlhvq'
     )
   })
 
@@ -98,17 +98,17 @@ describe('Heads', () => {
 
   it('should handle non-batching datastore correctly', async () => {
     // @TODO use non batching
-    //const store = new MemoryDatastore({ batching: false });
+    // const store = new MemoryDatastore({ batching: false });
     const store = new MemoryDatastore()
     const namespace = new Key('/testnamespace')
     const log = logger('test')
     const heads = new Heads(store, namespace, log)
 
     const cid1 = CID.parse(
-      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku',
+      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku'
     )
     const cid2 = CID.parse(
-      'bafybeigdyrztg6nbv3f2vzk3euvr63zjkvqlukmhhojz6kmiy7m7xvlhvq',
+      'bafybeigdyrztg6nbv3f2vzk3euvr63zjkvqlukmhhojz6kmiy7m7xvlhvq'
     )
 
     await heads.add(cid1, 1n)
@@ -125,15 +125,15 @@ describe('Heads', () => {
     const heads = new Heads(store, namespace, log)
 
     const cid1 = CID.parse(
-      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku',
+      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku'
     )
     const cid2 = CID.parse(
-      'bafybeigdyrztg6nbv3f2vzk3euvr63zjkvqlukmhhojz6kmiy7m7xvlhvq',
+      'bafybeigdyrztg6nbv3f2vzk3euvr63zjkvqlukmhhojz6kmiy7m7xvlhvq'
     )
 
     await Promise.all([
       heads.add(cid1, 1n),
-      heads.add(cid1, 1n).then(() => heads.replace(cid1, cid2, 2n)),
+      heads.add(cid1, 1n).then(async () => heads.replace(cid1, cid2, 2n))
     ])
 
     const { heads: headList } = await heads.list()
@@ -148,13 +148,13 @@ describe('Heads', () => {
     const heads = new Heads(store, namespace, log)
 
     const cid1 = CID.parse(
-      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku',
+      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku'
     )
     const cid2 = CID.parse(
-      'bafybeigdyrztg6nbv3f2vzk3euvr63zjkvqlukmhhojz6kmiy7m7xvlhvq',
+      'bafybeigdyrztg6nbv3f2vzk3euvr63zjkvqlukmhhojz6kmiy7m7xvlhvq'
     )
     const cid3 = CID.parse(
-      'bafybeia7xyvnabemkgjjg7op5pjbyxgniowp7p37oayhtf5slwuwqe4lyq',
+      'bafybeia7xyvnabemkgjjg7op5pjbyxgniowp7p37oayhtf5slwuwqe4lyq'
     ) // Some other CID
 
     await heads.add(cid1, 1n) // First, add cid1 to the heads
@@ -169,7 +169,7 @@ describe('Heads', () => {
     const heads = new Heads(store, namespace, log)
 
     const cid1 = CID.parse(
-      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku',
+      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku'
     )
     const max64BitUnsigned = BigInt('18446744073709551615')
 
@@ -189,7 +189,7 @@ describe('Heads', () => {
     const heads = new Heads(store, namespace, log)
 
     const cid1 = CID.parse(
-      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku',
+      'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku'
     )
 
     await expect(heads.add(cid1, 1n)).rejects.toThrow('Simulated failure')

@@ -9,62 +9,54 @@ import { MemoryDatastore } from 'datastore-core/memory'
 import { createHelia, type HeliaLibp2p } from 'helia'
 import { Key } from 'interface-datastore'
 import { createLibp2p } from 'libp2p'
-import { sha256 as hasher } from 'multiformats/hashes/sha2'
-import { Datastore, type MyLibp2pServices } from '../src/crdt'
+import { Datastore, type CRDTLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
-import type { Libp2p, Message, SignedMessage } from '@libp2p/interface'
+import { msgIdFnStrictNoSign } from '../src/utils'
+import type { Libp2p } from '@libp2p/interface'
 import type { Multiaddr } from '@multiformats/multiaddr'
 
-export async function msgIdFnStrictNoSign (msg: Message): Promise<Uint8Array> {
-  const signedMessage = msg as SignedMessage
-  const encodedSeqNum = new TextEncoder().encode(
-    signedMessage.sequenceNumber.toString()
-  )
-
-  return hasher.encode(encodedSeqNum)
-}
-
-export async function waitUntilAsync (condition: () => Promise<boolean>, timeout = 5000, checkInterval = 10): Promise<void> {
+export async function waitUntilAsync (
+  condition: () => Promise<boolean>,
+  timeout = 5000,
+  checkInterval = 10
+): Promise<void> {
   const start = Date.now()
   while (Date.now() - start < timeout) {
     if (await condition()) {
       return
     }
-    await new Promise(resolve => setTimeout(resolve, checkInterval))
+    await new Promise((resolve) => setTimeout(resolve, checkInterval))
   }
   throw new Error('Condition not met within timeout')
 }
 
-export async function waitUntil (condition: () => boolean, timeout = 1000): Promise<void> {
+export async function waitUntil (
+  condition: () => boolean,
+  timeout = 1000
+): Promise<void> {
   const start = Date.now()
   while (Date.now() - start < timeout) {
     if (condition()) {
       return
     }
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await new Promise((resolve) => setTimeout(resolve, 10))
   }
   throw new Error('Condition not met within timeout')
 }
 
-export async function createNode (): Promise<HeliaLibp2p<Libp2p<MyLibp2pServices>>> {
+export async function createNode (): Promise<
+HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
+> {
   const blockstore = new MemoryBlockstore()
   const datastore = new MemoryDatastore()
 
   const libp2p = await createLibp2p({
     addresses: {
-      listen: [
-        '/ip4/127.0.0.1/tcp/0'
-      ]
+      listen: ['/ip4/127.0.0.1/tcp/0']
     },
-    transports: [
-      tcp()
-    ],
-    connectionEncryption: [
-      noise()
-    ],
-    streamMuxers: [
-      yamux()
-    ],
+    transports: [tcp()],
+    connectionEncryption: [noise()],
+    streamMuxers: [yamux()],
     // peerDiscovery: [
     //   bootstrap({
     //     list: [
@@ -97,13 +89,21 @@ export async function createNode (): Promise<HeliaLibp2p<Libp2p<MyLibp2pServices
   return h
 }
 
-export async function createReplicas (count: number, topic: string = 'test', connectTo?: Multiaddr): Promise<Datastore[]> {
+export async function createReplicas (
+  count: number,
+  topic: string = 'test',
+  connectTo?: Multiaddr
+): Promise<Datastore[]> {
   const replicas: Datastore[] = []
   for (let i = 0; i < count; i++) {
     const store = new MemoryDatastore()
     const namespace = new Key(`crdt${i}`)
     const dagService = await createNode()
-    const broadcaster = new PubSubBroadcaster(dagService.libp2p, topic, prefixLogger(`crdt${i}`).forComponent('pubsub'))
+    const broadcaster = new PubSubBroadcaster(
+      dagService.libp2p,
+      topic,
+      prefixLogger(`crdt${i}`).forComponent('pubsub')
+    )
 
     const options = {
       loggerPrefix: `crdt${i}`,
@@ -116,7 +116,13 @@ export async function createReplicas (count: number, topic: string = 'test', con
       multiHeadProcessing: false
     } as any
 
-    const datastore = new Datastore(store, namespace, dagService, broadcaster, options)
+    const datastore = new Datastore(
+      store,
+      namespace,
+      dagService,
+      broadcaster,
+      options
+    )
     replicas.push(datastore)
   }
 
@@ -134,7 +140,10 @@ export async function createReplicas (count: number, topic: string = 'test', con
 
   if (count > 1) {
     for (let i = 0; i < count; i++) {
-      await waitUntil(() => replicas[i].broadcaster.getSubscribers().length > 0, 5000)
+      await waitUntil(
+        () => replicas[i].broadcaster.getSubscribers().length > 0,
+        5000
+      )
       // console.log(`replica ${i} subscribers`, replicas[i].broadcaster.getSubscribers())
     }
   }
@@ -142,12 +151,25 @@ export async function createReplicas (count: number, topic: string = 'test', con
   return replicas
 }
 
-export async function waitForPropagation (delay = 2000, replica?: Datastore, expectedKey?: Key, expectedValue?: Uint8Array): Promise<void> {
+export async function waitForPropagation (
+  delay = 2000,
+  replica?: Datastore,
+  expectedKey?: Key,
+  expectedValue?: Uint8Array
+): Promise<void> {
   if (replica != null && expectedKey != null && expectedValue != null) {
-    await waitUntilAsync(async () => {
-      const res = await replica.get(expectedKey)
-      return res !== null && res.length === expectedValue.length && res.every((value, index) => value === expectedValue[index])
-    }, delay, 100)
+    await waitUntilAsync(
+      async () => {
+        const res = await replica.get(expectedKey)
+        return (
+          res !== null &&
+          res.length === expectedValue.length &&
+          res.every((value, index) => value === expectedValue[index])
+        )
+      },
+      delay,
+      100
+    )
   } else {
     // This could be a simple delay or a more sophisticated simulation
     await new Promise((resolve) => setTimeout(resolve, delay))

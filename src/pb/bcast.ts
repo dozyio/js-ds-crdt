@@ -10,7 +10,7 @@ import {
   type DecodeOptions,
   encodeMessage,
   MaxLengthError,
-  message,
+  message
 } from 'protons-runtime'
 import { alloc as uint8ArrayAlloc } from 'uint8arrays/alloc'
 import type { Uint8ArrayList } from 'uint8arraylist'
@@ -46,7 +46,7 @@ export namespace bcast {
           },
           (reader, length, opts = {}) => {
             const obj: any = {
-              Heads: [],
+              Heads: []
             }
 
             const end = length == null ? reader.len : reader.pos + length
@@ -61,14 +61,14 @@ export namespace bcast {
                     obj.Heads.length === opts.limits.Heads
                   ) {
                     throw new MaxLengthError(
-                      'Decode error - map field "Heads" had too many elements',
+                      'Decode error - map field "Heads" had too many elements'
                     )
                   }
 
                   obj.Heads.push(
                     bcast.Head.codec().decode(reader, reader.uint32(), {
-                      limits: opts.limits?.Heads$,
-                    }),
+                      limits: opts.limits?.Heads$
+                    })
                   )
                   break
                 }
@@ -80,7 +80,7 @@ export namespace bcast {
             }
 
             return obj
-          },
+          }
         )
       }
 
@@ -93,7 +93,7 @@ export namespace bcast {
 
     export const decode = (
       buf: Uint8Array | Uint8ArrayList,
-      opts?: DecodeOptions<CRDTBroadcast>,
+      opts?: DecodeOptions<CRDTBroadcast>
     ): CRDTBroadcast => {
       return decodeMessage(buf, CRDTBroadcast.codec(), opts)
     }
@@ -125,7 +125,7 @@ export namespace bcast {
           },
           (reader, length, opts = {}) => {
             const obj: any = {
-              Cid: uint8ArrayAlloc(0),
+              Cid: uint8ArrayAlloc(0)
             }
 
             const end = length == null ? reader.len : reader.pos + length
@@ -146,7 +146,7 @@ export namespace bcast {
             }
 
             return obj
-          },
+          }
         )
       }
 
@@ -159,7 +159,7 @@ export namespace bcast {
 
     export const decode = (
       buf: Uint8Array | Uint8ArrayList,
-      opts?: DecodeOptions<Head>,
+      opts?: DecodeOptions<Head>
     ): Head => {
       return decodeMessage(buf, Head.codec(), opts)
     }
@@ -196,7 +196,7 @@ export namespace bcast {
           }
 
           return obj
-        },
+        }
       )
     }
 
@@ -209,7 +209,7 @@ export namespace bcast {
 
   export const decode = (
     buf: Uint8Array | Uint8ArrayList,
-    opts?: DecodeOptions<bcast>,
+    opts?: DecodeOptions<bcast>
   ): bcast => {
     return decodeMessage(buf, bcast.codec(), opts)
   }

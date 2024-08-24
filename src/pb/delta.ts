@@ -15,7 +15,7 @@ import {
 import { alloc as uint8ArrayAlloc } from 'uint8arrays/alloc'
 import type { Uint8ArrayList } from 'uint8arraylist'
 
-export interface delta { }
+export interface delta {}
 
 export namespace delta {
   export interface Delta {

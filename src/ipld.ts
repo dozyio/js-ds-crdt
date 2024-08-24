@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import * as codec from '@ipld/dag-pb'
 import * as Block from 'multiformats/block'
 import { type CID } from 'multiformats/cid'

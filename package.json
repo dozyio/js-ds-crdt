@@ -11,8 +11,8 @@
     "dist",
     "!dist/test",
     "!**/*.tsbuildinfo",
-    ".gitignore",
-    ".prettierignore"
+    "!.gitignore",
+    "!.prettierignore"
   ],
   "exports": {
     ".": {
@@ -32,17 +32,15 @@
     "test": "vitest run --hideSkippedTests --allowOnly",
     "test:bench": "vitest bench",
     "test:watch": "vitest",
-    "start": "node dist/src/example/index.js",
     "clean": "aegir clean",
     "generate": "protons ./src/pb/*.proto",
-    "lint": "aegir lint",
-    "format": "yarn format:write",
-    "format:write": "yarn prettier --write --log-level warn .",
-    "format:check": "yarn prettier --list-different .",
+    "lint": "aegir lint --fix",
     "release": "aegir release",
-    "release:rc": "aegir release-rc"
+    "release:rc": "aegir release-rc",
+    "unused": "npx knip"
   },
   "devDependencies": {
+    "@libp2p/tcp": "^9.1.5",
     "@types/node": "^22.4.0",
     "aegir": "^44.1.1",
     "blockstore-core": "^5.0.0",
@@ -50,8 +48,6 @@
     "prettier": "^3.3.3",
     "protobufjs": "^7.3.2",
     "protons": "^7.6.0",
-    "ts-node": "^10.9.2",
-    "tslib": "^2.6.3",
     "typescript": "^5.5.4",
     "vitest": "^2.0.5"
   },
@@ -60,26 +56,21 @@
     "@chainsafe/libp2p-noise": "^15.1.1",
     "@chainsafe/libp2p-yamux": "^6.0.2",
     "@ipld/dag-pb": "^4.1.2",
-    "@libp2p/bootstrap": "^10.1.5",
-    "@libp2p/circuit-relay-v2": "^1.1.5",
     "@libp2p/identify": "^2.1.5",
     "@libp2p/interface": "^1.7.0",
     "@libp2p/logger": "^4.0.20",
-    "@libp2p/pubsub": "^9.0.26",
-    "@libp2p/pubsub-peer-discovery": "^10.0.2",
-    "@libp2p/tcp": "^9.1.5",
-    "@libp2p/webrtc": "^4.1.7",
-    "@libp2p/websockets": "^8.2.0",
-    "@libp2p/webtransport": "^4.1.7",
+    "@multiformats/multiaddr": "^12.3.0",
     "async-mutex": "^0.5.0",
-    "bloom-filters": "^3.0.2",
     "datastore-core": "^10.0.0",
     "helia": "^4.2.5",
     "interface-blockstore": "^5.3.0",
     "interface-datastore": "^8.3.0",
+    "interface-store": "^6.0.0",
     "libp2p": "^1.9.2",
     "multiformats": "^13.2.2",
     "protons-runtime": "^5.5.0",
+    "uint8arraylist": "^2.4.8",
+    "uint8arrays": "^5.1.0",
     "weald": "^1.0.2"
   }
 }

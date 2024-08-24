@@ -7,7 +7,7 @@ const config = {
   singleQuote: true,
   tabWidth: 2,
   useTabs: false,
-  semi: false,
+  semi: false
 }
 
 export default config

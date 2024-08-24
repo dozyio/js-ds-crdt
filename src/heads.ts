@@ -5,6 +5,7 @@ import { CID } from 'multiformats/cid'
 import {
   arrayBufferToBigInt,
   bigintToUint8Array,
+  compareUint8Arrays,
   dsKeyToCidV1,
   multihashToDsKey
 } from './utils'
@@ -36,7 +37,8 @@ export class Heads {
   public async isHead (c: CID): Promise<{ isHead: boolean, height: bigint }> {
     return this.cacheMux.runExclusive(async () => {
       for (const cachedCidStr in this.cache) {
-        if (Object.prototype.hasOwnProperty.call(this.cache, cachedCidStr)) { // Check if the property is a direct property
+        if (Object.prototype.hasOwnProperty.call(this.cache, cachedCidStr)) {
+          // Check if the property is a direct property
           const cachedCid = CID.parse(cachedCidStr)
           if (c.equals(cachedCid)) {
             return { isHead: true, height: this.cache[cachedCidStr] }
@@ -110,7 +112,7 @@ export class Heads {
         .map((value) => BigInt(value))
         .reduce((max, current) => (current > max ? current : max), BigInt(0))
 
-      heads.sort((a, b) => Buffer.compare(a.bytes, b.bytes))
+      heads.sort((a, b) => compareUint8Arrays(a.bytes, b.bytes))
 
       return { heads, maxHeight }
     })

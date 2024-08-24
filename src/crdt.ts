@@ -10,16 +10,23 @@ import {
 import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
-import debug from 'weald'
+// import debug from 'weald'
 import { Heads } from './heads'
 import { CrdtNodeGetter } from './ipld'
 import * as bpb from './pb/bcast'
 import * as dpb from './pb/delta'
-import { CRDTSet } from './set'
+import { CRDTSet, type IBloomFilter } from './set'
 import { multihashToDsKey } from './utils'
 import type * as dagPb from '@ipld/dag-pb'
 import type { Identify } from '@libp2p/identify'
-import type { ComponentLogger, Libp2p, Logger, PeerId, PubSub, ServiceMap } from '@libp2p/interface'
+import type {
+  ComponentLogger,
+  Libp2p,
+  Logger,
+  PeerId,
+  PubSub,
+  ServiceMap
+} from '@libp2p/interface'
 import type { HeliaLibp2p } from 'helia'
 
 const headsNs = 'h' // heads
@@ -45,6 +52,7 @@ interface Broadcaster {
 interface Options {
   loggerPrefix: string // ComponentLogger
   rebroadcastInterval: number
+  bloomFilter?: IBloomFilter
   putHook?(key: string, value: Uint8Array): void
   deleteHook?(key: string): void
   numWorkers: number
@@ -61,7 +69,7 @@ interface Stats {
   queuedJobs: number
 }
 
-export interface MyLibp2pServices extends ServiceMap {
+export interface CRDTLibp2pServices extends ServiceMap {
   identify: Identify
   pubsub: PubSub
 }
@@ -90,7 +98,7 @@ export class Datastore {
   public readonly namespace: Key
   private readonly set: CRDTSet
   public readonly heads: Heads
-  public readonly dagService: HeliaLibp2p<Libp2p<MyLibp2pServices>>
+  public readonly dagService: HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
   public readonly broadcaster: Broadcaster
   private readonly seenHeads: Map<CID, boolean>
   private curDelta: dpb.delta.Delta | null = null
@@ -102,7 +110,7 @@ export class Datastore {
   constructor (
     store: DSDatastore,
     namespace: Key,
-    dagSyncer: HeliaLibp2p<Libp2p<MyLibp2pServices>>,
+    dagSyncer: HeliaLibp2p<Libp2p<CRDTLibp2pServices>>,
     broadcaster: Broadcaster,
     options?: Options
   ) {
@@ -129,6 +137,7 @@ export class Datastore {
       store,
       namespace.child(new Key(setNs)),
       this.prefixedLogger.forComponent('set'),
+      this.options.bloomFilter,
       this.options.putHook,
       this.options.deleteHook
     )
@@ -231,7 +240,10 @@ export class Datastore {
         const curHeadCount = await this.heads.len()
         this.logger('curHeadCount', curHeadCount)
         if (curHeadCount === 0) {
-          const dg = new CrdtNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
+          const dg = new CrdtNodeGetter(
+            this.dagService.blockstore,
+            this.prefixedLogger.forComponent('ipld')
+          )
           for (const head of bCastHeads) {
             const prio = await dg.getPriority(head)
             this.logger('prio', prio)
@@ -241,7 +253,9 @@ export class Datastore {
 
         for (const head of bCastHeads) {
           if (this.options.multiHeadProcessing) {
-            processHead(head).catch((err) => { this.logger.error(err) })
+            processHead(head).catch((err) => {
+              this.logger.error(err)
+            })
           } else {
             await processHead(head)
           }
@@ -323,7 +337,7 @@ export class Datastore {
     if (this.options.repairInterval === 0) return
 
     let timer = setTimeout(() => {
-      this.repairDAG().catch(err => {
+      this.repairDAG().catch((err) => {
         this.logger.error('Error in repairDAG:', err)
       })
     }, 0) // Fire immediately on start
@@ -334,7 +348,7 @@ export class Datastore {
       )
       clearTimeout(timer)
       timer = setTimeout(() => {
-        this.repairDAG().catch(err => {
+        this.repairDAG().catch((err) => {
           this.logger.error('Error in repairDAG:', err)
         })
       }, this.options.repairInterval) // Fire immediately on start
@@ -347,7 +361,10 @@ export class Datastore {
     const start = Date.now()
 
     const heads = await this.heads.list()
-    const getter = new CrdtNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
+    const getter = new CrdtNodeGetter(
+      this.dagService.blockstore,
+      this.prefixedLogger.forComponent('ipld')
+    )
 
     const nodes: Array<{ head: CID, node: CID }> = []
     const queued = new Set<string>()
@@ -483,7 +500,10 @@ export class Datastore {
 
   public async handleBranch (head: CID, c: CID): Promise<void> {
     this.logger('handling branch', head.toString(), c.toString())
-    const dg = new CrdtNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
+    const dg = new CrdtNodeGetter(
+      this.dagService.blockstore,
+      this.prefixedLogger.forComponent('ipld')
+    )
     const session = new Mutex()
 
     await this.sendNewJobs(session, dg, head, 0n, [c])
@@ -496,7 +516,12 @@ export class Datastore {
     rootPrio: bigint,
     children: CID[]
   ): Promise<void> {
-    this.logger('sending new jobs', root.toString(), rootPrio.toString(), children.map(c => c.toString()))
+    this.logger(
+      'sending new jobs',
+      root.toString(),
+      rootPrio.toString(),
+      children.map((c) => c.toString())
+    )
     if (children.length === 0) {
       this.logger('children.length === 0')
       return
@@ -542,7 +567,10 @@ export class Datastore {
 
     for (const child of children) {
       if (!goodDeltas.has(child.toString())) {
-        this.logger.error('GetDeltas did not include all children', child.toString())
+        this.logger.error(
+          'GetDeltas did not include all children',
+          child.toString()
+        )
         this.queuedChildren.remove(child)
       }
     }
@@ -605,7 +633,7 @@ export class Datastore {
       await this.processNode(block.cid, height, delta, nd)
     } catch (err: any) {
       this.logger.error(`Error processing node ${block.cid}: ${err}`)
-      // TODO make dirty
+      await this.markDirty()
     }
 
     return block.cid
@@ -742,7 +770,10 @@ export class Datastore {
 
   public async printDAG (): Promise<void> {
     const heads = await this.heads.list()
-    const getter = new CrdtNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
+    const getter = new CrdtNodeGetter(
+      this.dagService.blockstore,
+      this.prefixedLogger.forComponent('ipld')
+    )
 
     const set = new Set<string>()
 
@@ -821,8 +852,14 @@ export class Datastore {
     d2: dpb.delta.Delta
   ): dpb.delta.Delta {
     return {
-      elements: [...(Array.isArray(d1.elements) ? d1.elements : []), ...(Array.isArray(d2.elements) ? d2.elements : [])],
-      tombstones: [...(Array.isArray(d1.tombstones) ? d1.tombstones : []), ...(Array.isArray(d2.tombstones) ? d2.tombstones : [])],
+      elements: [
+        ...(Array.isArray(d1.elements) ? d1.elements : []),
+        ...(Array.isArray(d2.elements) ? d2.elements : [])
+      ],
+      tombstones: [
+        ...(Array.isArray(d1.tombstones) ? d1.tombstones : []),
+        ...(Array.isArray(d2.tombstones) ? d2.tombstones : [])
+      ],
       priority: d2.priority > d1.priority ? d2.priority : d1.priority
     }
   }
@@ -874,7 +911,7 @@ class DagJob {
     public delta: dpb.delta.Delta,
     public node: dagPb.PBNode,
     public children: CID[]
-  ) { }
+  ) {}
 }
 
 class CidSafeSet {
@@ -900,7 +937,7 @@ class CidSafeSet {
 }
 
 class DatastoreBatch implements DSBatch {
-  constructor (private readonly store: Datastore) { }
+  constructor (private readonly store: Datastore) {}
 
   async put (key: Key, value: Uint8Array): Promise<void> {
     const size = await this.store.addToDelta(key.toString(), value)

@@ -2,6 +2,8 @@ import { Key } from 'interface-datastore'
 import { base32 } from 'multiformats/bases/base32'
 import { CID } from 'multiformats/cid'
 import * as multihash from 'multiformats/hashes/digest'
+import { sha256 as hasher } from 'multiformats/hashes/sha2'
+import type { Message, SignedMessage } from '@libp2p/interface'
 import type { MultihashDigest } from 'multiformats/hashes/interface'
 
 // Exported equivalent to `NewKeyFromBinary` in Go
@@ -68,4 +70,42 @@ export function arrayBufferToBigInt (buffer: ArrayBufferLike): bigint {
   }
 
   return result
+}
+
+export async function msgIdFnStrictNoSign (msg: Message): Promise<Uint8Array> {
+  const signedMessage = msg as SignedMessage
+  const encodedSeqNum = new TextEncoder().encode(
+    signedMessage.sequenceNumber.toString()
+  )
+
+  return hasher.encode(encodedSeqNum)
+}
+
+// Compare two uint8arrays - returns -1, 0, or 1
+// Replacement for Buffer.compare
+export function compareUint8Arrays (
+  arr1: Uint8Array,
+  arr2: Uint8Array
+): -1 | 0 | 1 {
+  if (arr1 === arr2) {
+    return 0 // same object
+  }
+
+  if (arr1.length < arr2.length) {
+    return -1
+  }
+  if (arr1.length > arr2.length) {
+    return 1
+  }
+
+  for (let i = 0; i < arr1.length; i++) {
+    if (arr1[i] < arr2[i]) {
+      return -1
+    }
+    if (arr1[i] > arr2[i]) {
+      return 1
+    }
+  }
+
+  return 0 // arrays are equal
 }

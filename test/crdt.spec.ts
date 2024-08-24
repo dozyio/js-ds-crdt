@@ -6,9 +6,15 @@ import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { describe, it, expect, beforeEach } from 'vitest'
-import { Datastore, type MyLibp2pServices } from '../src/crdt'
+import { Datastore, type CRDTLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
-import { cmpValues, createNode, createReplicas, waitForPropagation, waitUntil } from './utils'
+import {
+  cmpValues,
+  createNode,
+  createReplicas,
+  waitForPropagation,
+  waitUntil
+} from './utils'
 import type { Libp2p } from '@libp2p/interface'
 import type { HeliaLibp2p } from 'helia'
 // import debug from 'weald'
@@ -16,7 +22,7 @@ import type { HeliaLibp2p } from 'helia'
 describe('Datastore', () => {
   let store: MemoryDatastore
   let namespace: Key
-  let dagService: HeliaLibp2p<Libp2p<MyLibp2pServices>>
+  let dagService: HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
   let broadcaster: any
   let options: any
   let datastore: Datastore
@@ -25,7 +31,11 @@ describe('Datastore', () => {
     store = new MemoryDatastore()
     namespace = new Key('testNamespace')
     dagService = await createNode()
-    broadcaster = new PubSubBroadcaster(dagService.libp2p, 'test', prefixLogger('crdt').forComponent('pubsub'))
+    broadcaster = new PubSubBroadcaster(
+      dagService.libp2p,
+      'test',
+      prefixLogger('crdt').forComponent('pubsub')
+    )
 
     options = {
       logger: console,
@@ -127,7 +137,7 @@ describe('Datastore', () => {
       const replicas = await createReplicas(2, 't1')
 
       const key = new Key('/test/key')
-      const value = Buffer.from('hola')
+      const value = new TextEncoder().encode('hola')
 
       // Put the value in the first replica
       await replicas[0].put(key, value)
@@ -156,7 +166,7 @@ describe('Datastore', () => {
       for (const replica of replicas) {
         await waitUntil(() => replica.get(key) !== null)
         const replicatedValue = await replica.get(key)
-        expect(replicatedValue).toEqual(value)
+        expect(cmpValues(replicatedValue, value)).toBe(true)
       }
     }, 5000)
 
@@ -164,11 +174,11 @@ describe('Datastore', () => {
       const replicas = await createReplicas(6, 't2')
 
       const key = new Key('/test/key')
-      let value
+      let value = new TextEncoder().encode('hola')
 
       // Put the value in the first replica
       for (let i = 0; i < 20; i++) {
-        value = Buffer.from(`hola${i}`)
+        value = new TextEncoder().encode(`hola${i}`)
         await replicas[0].put(key, value)
       }
 
@@ -178,7 +188,7 @@ describe('Datastore', () => {
       for (const replica of replicas) {
         await waitUntil(() => replica.get(key) !== null)
         const replicatedValue = await replica.get(key)
-        expect(replicatedValue).toEqual(value)
+        expect(cmpValues(replicatedValue, value)).toBe(true)
       }
     }, 6000)
 
@@ -192,7 +202,12 @@ describe('Datastore', () => {
 
       await replicas[0].put(key, largeValue)
 
-      await waitForPropagation(5000, replicas[replicas.length - 1], key, largeValue)
+      await waitForPropagation(
+        5000,
+        replicas[replicas.length - 1],
+        key,
+        largeValue
+      )
 
       for (const replica of replicas) {
         const replicatedValue = await replica.get(key)
@@ -204,7 +219,7 @@ describe('Datastore', () => {
       const replicas = await createReplicas(2, 't8')
 
       const key = new Key('/test/delete')
-      const value = Buffer.from('to be deleted')
+      const value = new TextEncoder().encode('delete me')
 
       await replicas[0].put(key, value)
 

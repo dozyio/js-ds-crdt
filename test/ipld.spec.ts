@@ -13,7 +13,10 @@ describe('CrdtNodeGetter', () => {
 
   beforeEach(() => {
     blockstore = new MemoryBlockstore()
-    crdtNodeGetter = new CrdtNodeGetter(blockstore, prefixLogger('test').forComponent('ipld'))
+    crdtNodeGetter = new CrdtNodeGetter(
+      blockstore,
+      prefixLogger('test').forComponent('ipld')
+    )
   })
 
   it('should correctly get delta for a given CID', async () => {
