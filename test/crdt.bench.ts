@@ -1,19 +1,17 @@
 import { Key } from 'interface-datastore'
 import { describe, bench } from 'vitest'
-import { type Datastore } from '../src/crdt'
 import { createReplicas, waitUntilAsync } from './utils'
+import type { CRDTDatastore } from '../src/crdt'
 
 describe('Benchmark write', () => {
-  let replicas: Datastore[]
-  const value = new Uint8Array([1, 2, 3, 4, 5]) // Some sample value
+  let replicas: CRDTDatastore[]
+  const value = new Uint8Array([1, 2, 3, 4, 5])
 
   bench(
     'write keys to single replica',
     async () => {
       const key = new Key('/benchmark/writekey')
       await replicas[0].put(key, value)
-      // const v = await replicas[0].get(key)
-      // expect(v).toEqual('xxxx')//value)
     },
     {
       time: 5000,
@@ -25,8 +23,8 @@ describe('Benchmark write', () => {
 })
 
 describe('Benchmark read/write', () => {
-  let replicas: Datastore[]
-  const value = new Uint8Array([1, 2, 3, 4, 5]) // Some sample value
+  let replicas: CRDTDatastore[]
+  const value = new Uint8Array([1, 2, 3, 4, 5])
 
   bench(
     'read/write keys to single replica',
@@ -46,18 +44,4 @@ describe('Benchmark read/write', () => {
       }
     }
   )
-
-  // bench('normal', () => {
-  //   const x = [1, 5, 4, 2, 3]
-  //   x.sort((a, b) => {
-  //     return a - b
-  //   })
-  // })
-  //
-  // bench('reverse', () => {
-  //   const x = [1, 5, 4, 2, 3]
-  //   x.reverse().sort((a, b) => {
-  //     return a - b
-  //   })
-  // })
 })

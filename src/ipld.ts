@@ -15,7 +15,7 @@ export interface DeltaOption {
 
 const { createNode } = codec
 
-export class CrdtNodeGetter {
+export class CRDTNodeGetter {
   private readonly blockstore: Blockstore
   private readonly logger: Logger
 

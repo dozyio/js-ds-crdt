@@ -6,7 +6,7 @@ import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { describe, it, expect, beforeEach } from 'vitest'
-import { Datastore, type CRDTLibp2pServices } from '../src/crdt'
+import { CRDTDatastore, type CRDTLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
 import {
   cmpValues,
@@ -25,7 +25,7 @@ describe('Datastore', () => {
   let dagService: HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
   let broadcaster: any
   let options: any
-  let datastore: Datastore
+  let datastore: CRDTDatastore
 
   beforeEach(async () => {
     store = new MemoryDatastore()
@@ -48,7 +48,7 @@ describe('Datastore', () => {
       multiHeadProcessing: false
     }
 
-    datastore = new Datastore(
+    datastore = new CRDTDatastore(
       store,
       namespace,
       dagService,

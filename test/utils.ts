@@ -9,7 +9,7 @@ import { MemoryDatastore } from 'datastore-core/memory'
 import { createHelia, type HeliaLibp2p } from 'helia'
 import { Key } from 'interface-datastore'
 import { createLibp2p } from 'libp2p'
-import { Datastore, type CRDTLibp2pServices } from '../src/crdt'
+import { CRDTDatastore, type CRDTLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
 import { msgIdFnStrictNoSign } from '../src/utils'
 import type { Libp2p } from '@libp2p/interface'
@@ -93,8 +93,8 @@ export async function createReplicas (
   count: number,
   topic: string = 'test',
   connectTo?: Multiaddr
-): Promise<Datastore[]> {
-  const replicas: Datastore[] = []
+): Promise<CRDTDatastore[]> {
+  const replicas: CRDTDatastore[] = []
   for (let i = 0; i < count; i++) {
     const store = new MemoryDatastore()
     const namespace = new Key(`crdt${i}`)
@@ -116,7 +116,7 @@ export async function createReplicas (
       multiHeadProcessing: false
     } as any
 
-    const datastore = new Datastore(
+    const datastore = new CRDTDatastore(
       store,
       namespace,
       dagService,
@@ -153,7 +153,7 @@ export async function createReplicas (
 
 export async function waitForPropagation (
   delay = 2000,
-  replica?: Datastore,
+  replica?: CRDTDatastore,
   expectedKey?: Key,
   expectedValue?: Uint8Array
 ): Promise<void> {

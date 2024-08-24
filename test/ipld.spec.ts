@@ -5,15 +5,15 @@ import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { delta } from '../src//pb/delta'
-import { CrdtNodeGetter, type DeltaOption } from '../src/ipld'
+import { CRDTNodeGetter, type DeltaOption } from '../src/ipld'
 
-describe('CrdtNodeGetter', () => {
+describe('CRDTNodeGetter', () => {
   let blockstore: MemoryBlockstore
-  let crdtNodeGetter: CrdtNodeGetter
+  let crdtNodeGetter: CRDTNodeGetter
 
   beforeEach(() => {
     blockstore = new MemoryBlockstore()
-    crdtNodeGetter = new CrdtNodeGetter(
+    crdtNodeGetter = new CRDTNodeGetter(
       blockstore,
       prefixLogger('test').forComponent('ipld')
     )
@@ -144,7 +144,7 @@ describe('CrdtNodeGetter', () => {
       elements: [],
       tombstones: []
     }
-    const node = await CrdtNodeGetter.makeNode(mockDelta, [cid1, cid2])
+    const node = await CRDTNodeGetter.makeNode(mockDelta, [cid1, cid2])
 
     expect(node.Links).toHaveLength(2)
     expect(node.Links[0].Hash.equals(cid1)).toBe(true)

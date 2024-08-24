@@ -12,7 +12,7 @@ import { CID } from 'multiformats/cid'
 import { sha256 as hasher } from 'multiformats/hashes/sha2'
 // import debug from 'weald'
 import { Heads } from './heads'
-import { CrdtNodeGetter } from './ipld'
+import { CRDTNodeGetter } from './ipld'
 import * as bpb from './pb/bcast'
 import * as dpb from './pb/delta'
 import { CRDTSet, type IBloomFilter } from './set'
@@ -89,7 +89,7 @@ export function defaultOptions (): Options {
   }
 }
 
-export class Datastore {
+export class CRDTDatastore {
   private readonly ctx: AbortController
   public options: Options
   private readonly prefixedLogger: ComponentLogger
@@ -240,7 +240,7 @@ export class Datastore {
         const curHeadCount = await this.heads.len()
         this.logger('curHeadCount', curHeadCount)
         if (curHeadCount === 0) {
-          const dg = new CrdtNodeGetter(
+          const dg = new CRDTNodeGetter(
             this.dagService.blockstore,
             this.prefixedLogger.forComponent('ipld')
           )
@@ -361,7 +361,7 @@ export class Datastore {
     const start = Date.now()
 
     const heads = await this.heads.list()
-    const getter = new CrdtNodeGetter(
+    const getter = new CRDTNodeGetter(
       this.dagService.blockstore,
       this.prefixedLogger.forComponent('ipld')
     )
@@ -500,7 +500,7 @@ export class Datastore {
 
   public async handleBranch (head: CID, c: CID): Promise<void> {
     this.logger('handling branch', head.toString(), c.toString())
-    const dg = new CrdtNodeGetter(
+    const dg = new CRDTNodeGetter(
       this.dagService.blockstore,
       this.prefixedLogger.forComponent('ipld')
     )
@@ -511,7 +511,7 @@ export class Datastore {
 
   private async sendNewJobs (
     session: Mutex,
-    ng: CrdtNodeGetter,
+    ng: CRDTNodeGetter,
     root: CID,
     rootPrio: bigint,
     children: CID[]
@@ -770,7 +770,7 @@ export class Datastore {
 
   public async printDAG (): Promise<void> {
     const heads = await this.heads.list()
-    const getter = new CrdtNodeGetter(
+    const getter = new CRDTNodeGetter(
       this.dagService.blockstore,
       this.prefixedLogger.forComponent('ipld')
     )
@@ -785,7 +785,7 @@ export class Datastore {
   private async printDAGRec (
     from: CID,
     depth: number,
-    getter: CrdtNodeGetter,
+    getter: CRDTNodeGetter,
     set: Set<string>
   ): Promise<void> {
     const padding = ' '.repeat(depth)
@@ -905,7 +905,7 @@ export class Datastore {
 class DagJob {
   constructor (
     public session: Mutex,
-    public nodeGetter: CrdtNodeGetter,
+    public nodeGetter: CRDTNodeGetter,
     public root: CID,
     public rootPrio: bigint,
     public delta: dpb.delta.Delta,
@@ -937,7 +937,7 @@ class CidSafeSet {
 }
 
 class DatastoreBatch implements DSBatch {
-  constructor (private readonly store: Datastore) {}
+  constructor (private readonly store: CRDTDatastore) {}
 
   async put (key: Key, value: Uint8Array): Promise<void> {
     const size = await this.store.addToDelta(key.toString(), value)
