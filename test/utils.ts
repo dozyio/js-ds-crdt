@@ -1,6 +1,7 @@
 import { gossipsub } from '@chainsafe/libp2p-gossipsub'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
+import { bitswap } from '@helia/block-brokers'
 import { identify } from '@libp2p/identify'
 import { prefixLogger } from '@libp2p/logger'
 import { tcp } from '@libp2p/tcp'
@@ -80,10 +81,14 @@ HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
     }
   })
 
+  const blockBrokers = [bitswap()]
+
   const h = await createHelia({
     datastore,
     blockstore,
-    libp2p
+    libp2p,
+    blockBrokers,
+    dns: undefined
   })
 
   return h

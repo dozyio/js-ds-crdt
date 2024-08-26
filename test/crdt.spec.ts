@@ -22,6 +22,8 @@ import type { HeliaLibp2p } from 'helia'
 
 // debug.enable('crdt*')
 
+// for interop tests - see https://github.com/dozyio/ds-crdt-interop
+
 describe('Datastore', () => {
   let store: MemoryDatastore
   let namespace: Key
@@ -245,56 +247,4 @@ describe('Datastore', () => {
       }
     }, 8000)
   })
-
-  // describe('Interop', () => {
-  //   it('should replicate data to Go', async () => {
-  //     debug.enable('*') // 'crdt*,*crdt:trace')
-  //     const remote = '/ip4/127.0.0.1/tcp/49477/p2p/12D3KooWEkgRTTXGsmFLBembMHxVPDcidJyqFcrqbm9iBE1xhdXq'
-  //     const ma = multiaddr(remote)
-  //
-  //     const replicas = await createReplicas(1, 'globaldb-example', ma)
-  //
-  //     for (let i = 0; i < 500; i++) {
-  //       const key = new Key(`/test/key${i}`)
-  //       const value = Buffer.from(`hola${i}`)
-  //       await replicas[0].put(key, value)
-  //     }
-  //
-  //     await waitForPropagation(10000)
-  //
-  //     // console.log('replica[0] DAG')
-  //     // await replicas[0].printDAG()
-  //
-  //     // const list0 = []
-  //     // for await (const { key, value } of replicas[0].store.query({})) {
-  //     //   list0.push(key)
-  //     // }
-  //     // console.log('LIST0 ALL THE VALUES', list0)
-  //
-  //     expect(true).toEqual(true)
-  //   }, 20000)
-  //
-  //   it.skip('should wait for propagation from 3rd party', async () => {
-  //     debug.enable('*') // 'crdt*,*crdt:trace')
-  //     const remote = '/ip4/127.0.0.1/tcp/49477/p2p/12D3KooWEkgRTTXGsmFLBembMHxVPDcidJyqFcrqbm9iBE1xhdXq'
-  //     const ma = multiaddr(remote)
-  //
-  //     const replicas = await createReplicas(1, 'globaldb-example', ma)
-  //
-  //     await waitForPropagation(15000)
-  //
-  //     // console.log('replica[0] DAG')
-  //     // await replicas[0].printDAG()
-  //
-  //     const stats = await replicas[0].internalStats()
-  //
-  //     replicas[0].logger(`Number of heads: ${stats.heads.length}`)
-  //     replicas[0].logger(`Max height: ${stats.maxHeight}`)
-  //     replicas[0].logger(`Queued jobs: ${stats.queuedJobs}`)
-  //     replicas[0].logger(`Dirty: ${await replicas[0].isDirty()}`)
-  //
-  //
-  //     expect(true).toEqual(true)
-  //   }, 20000)
-  // })
 })
