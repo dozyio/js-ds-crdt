@@ -1,3 +1,4 @@
+import { BloomFilter } from '@libp2p/utils/filters'
 import { Mutex } from 'async-mutex'
 import { type Datastore, Key, type Pair, type Query } from 'interface-datastore'
 import { compareUint8Arrays } from './utils'
@@ -11,10 +12,10 @@ const keysNs = 'k'
 const valueSuffix = 'v'
 const prioritySuffix = 'p'
 
-// Define Bloom filter options
-// const TombstonesBloomFilterSize = 30 * 1024 * 1024 * 8 // 30 MiB
-// const TombstonesBloomFilterHashes = 2
-// https://github.com/Callidon/bloom-filters/pull/71
+// The Go implementation uses a bloom filter with a size of 30 MiB and 2 hashes.
+// We use a smaller size and hash count as a trade-off
+const TombstonesBloomFilterSize = 1024 * 1024 * 8 // 1 MiB
+const TombstonesBloomFilterHashes = 2
 
 export interface IBloomFilter {
   add(key: string): void
@@ -46,10 +47,12 @@ export class CRDTSet {
     this.putElemsMux = new Mutex()
     this.tombstonesBloom = tombstonesBloom
 
-    // this.tombstonesBloom = new BloomFilter(
-    //   TombstonesBloomFilterSize,
-    //   TombstonesBloomFilterHashes
-    // )
+    if (this.tombstonesBloom === undefined) {
+      this.tombstonesBloom = new BloomFilter({
+        bits: TombstonesBloomFilterSize,
+        hashes: TombstonesBloomFilterHashes
+      })
+    }
 
     if (this.tombstonesBloom !== undefined) {
       this.primeBloomFilter().catch((err: any) => {
