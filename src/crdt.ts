@@ -264,7 +264,7 @@ export class CRDTDatastore {
         if (err === ErrNoMoreBroadcast || this.ctx.signal.aborted) {
           return
         }
-        this.logger.error(err)
+        this.logger.error('error parsing broadcast', err)
       }
     })
   }
@@ -828,7 +828,8 @@ export class CRDTDatastore {
     const padding = ' '.repeat(depth)
 
     if (set.has(from.toString())) {
-      this.logger(`${padding}...`)
+      // eslint-disable-next-line no-console
+      console.log(`${padding}...`)
       return
     }
 
@@ -853,7 +854,8 @@ export class CRDTDatastore {
     }
 
     line += '}:'
-    this.logger(line)
+    // eslint-disable-next-line no-console
+    console.log(line)
 
     for (const link of node.Links) {
       await this.printDAGRec(link.Hash, depth + 1, getter, set)
