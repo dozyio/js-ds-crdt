@@ -1,7 +1,6 @@
 import * as codec from '@ipld/dag-pb'
 import { prefixLogger } from '@libp2p/logger'
 import { MemoryDatastore } from 'datastore-core/memory'
-// import delay from 'delay'
 import { Key } from 'interface-datastore'
 import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
@@ -20,121 +19,124 @@ import {
 import type { Libp2p } from '@libp2p/interface'
 import type { HeliaLibp2p } from 'helia'
 
-// debug.enable('crdt*')
+// debug.enable('crdt*,-crdt0:crdt')
+// debug.enable('*')
 
 // for interop tests - see https://github.com/dozyio/ds-crdt-interop
 
 describe('Datastore', () => {
-  let store: MemoryDatastore
-  let namespace: Key
-  let dagService: HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
-  let broadcaster: any
-  let options: any
-  let datastore: CRDTDatastore
+  describe('Single node', () => {
+    let store: MemoryDatastore
+    let namespace: Key
+    let dagService: HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
+    let broadcaster: any
+    let options: any
+    let datastore: CRDTDatastore
 
-  beforeEach(async () => {
-    store = new MemoryDatastore()
-    namespace = new Key('testNamespace')
-    dagService = await createNode()
-    broadcaster = new PubSubBroadcaster(
-      dagService.libp2p,
-      'test',
-      prefixLogger('crdt').forComponent('pubsub')
-    )
+    beforeEach(async () => {
+      store = new MemoryDatastore()
+      namespace = new Key('testNamespace')
+      dagService = await createNode()
+      broadcaster = new PubSubBroadcaster(
+        dagService.libp2p,
+        'test',
+        prefixLogger('crdt').forComponent('pubsub')
+      )
 
-    options = {
-      logger: console,
-      rebroadcastInterval: 1000,
-      repairInterval: 2000,
-      logInterval: 3000,
-      numWorkers: 1,
-      dagSyncerTimeout: 1000,
-      maxBatchDeltaSize: 1000,
-      multiHeadProcessing: false
-    }
+      options = {
+        logger: console,
+        rebroadcastInterval: 1000,
+        repairInterval: 2000,
+        logInterval: 3000,
+        numWorkers: 1,
+        dagSyncerTimeout: 1000,
+        maxBatchDeltaSize: 1000,
+        multiHeadProcessing: false
+      }
 
-    datastore = new CRDTDatastore(
-      store,
-      namespace,
-      dagService,
-      broadcaster,
-      options
-    )
-  })
+      datastore = new CRDTDatastore(
+        store,
+        namespace,
+        dagService,
+        broadcaster,
+        options
+      )
+    })
 
-  it('should initialize correctly', () => {
-    expect(datastore.options).toEqual(options)
-    expect(datastore.store).toBe(store)
-    expect(datastore.namespace).toBe(namespace)
-  })
+    it('should initialize correctly', () => {
+      expect(datastore.options).toEqual(options)
+      expect(datastore.store).toBe(store)
+      expect(datastore.namespace).toBe(namespace)
+    })
 
-  it('should add and retrieve elements from the set', async () => {
-    const key = new Key('key1')
-    const value = new Uint8Array([1, 2, 3])
+    it('should add and retrieve elements from the set', async () => {
+      const key = new Key('key1')
+      const value = new Uint8Array([1, 2, 3])
 
-    await datastore.put(key, value)
-    const storedValue = await datastore.get(key)
+      await datastore.put(key, value)
+      const storedValue = await datastore.get(key)
 
-    expect(cmpValues(storedValue, value)).toBe(true)
-  })
+      expect(cmpValues(storedValue, value)).toBe(true)
+    })
 
-  it('should delete elements from the set', async () => {
-    const key = new Key('key2')
-    const value = new Uint8Array([4, 5, 6])
+    it('should delete elements from the set', async () => {
+      const key = new Key('key2')
+      const value = new Uint8Array([4, 5, 6])
 
-    await datastore.put(key, value)
-    let storedValue = await datastore.get(key)
-    expect(cmpValues(storedValue, value)).toBe(true)
+      await datastore.put(key, value)
+      let storedValue = await datastore.get(key)
+      expect(cmpValues(storedValue, value)).toBe(true)
 
-    await datastore.delete(key)
-    storedValue = await datastore.get(key)
-    expect(storedValue).toBeNull()
-  })
+      await datastore.delete(key)
+      storedValue = await datastore.get(key)
+      expect(storedValue).toBeNull()
+    })
 
-  it('should mark the datastore as dirty and clean', async () => {
-    await datastore.markDirty()
-    expect(await datastore.isDirty()).toBe(true)
+    it('should mark the datastore as dirty and clean', async () => {
+      await datastore.markDirty()
+      expect(await datastore.isDirty()).toBe(true)
 
-    await datastore.markClean()
-    expect(await datastore.isDirty()).toBe(false)
-  })
+      await datastore.markClean()
+      expect(await datastore.isDirty()).toBe(false)
+    })
 
-  it('should process nodes correctly', async () => {
-    const delta = { priority: 1n, elements: [], tombstones: [] } as any
-    const node = codec.createNode(new Uint8Array(), [])
+    it('should process nodes correctly', async () => {
+      const delta = { priority: 1n, elements: [], tombstones: [] } as any
+      const node = codec.createNode(new Uint8Array(), [])
 
-    // Simulate adding the node to the DAG service's blockstore (optional, if necessary)
-    const block = await Block.encode({ value: node, codec, hasher })
-    await dagService.blockstore.put(block.cid, block.bytes)
+      // Simulate adding the node to the DAG service's blockstore (optional, if necessary)
+      const block = await Block.encode({ value: node, codec, hasher })
+      await dagService.blockstore.put(block.cid, block.bytes)
 
-    const cid = block.cid
+      const cid = block.cid
 
-    // Now, process the node
-    await datastore.processNode(cid, 1n, delta, node)
+      // Now, process the node
+      await datastore.processNode(cid, 1n, delta, node)
 
-    // Check if the node is marked as processed
-    const isProcessed = await datastore.isProcessed(cid)
+      // Check if the node is marked as processed
+      const isProcessed = await datastore.isProcessed(cid)
 
-    expect(isProcessed).toBe(true)
-  })
+      expect(isProcessed).toBe(true)
+    })
 
-  it('should rebroadcast heads', async () => {
-    const cid = CID.parse(
-      'bafyreigx2zx5k2gxejyfmksls5bl6bhybcq4aqmhft7y2jxup4lgjxbiou'
-    )
-    await datastore.heads.add(cid, 1n)
+    it('should rebroadcast heads', async () => {
+      const cid = CID.parse(
+        'bafyreigx2zx5k2gxejyfmksls5bl6bhybcq4aqmhft7y2jxup4lgjxbiou'
+      )
+      await datastore.heads.add(cid, 1n)
 
-    await datastore.rebroadcastHeads()
-    // Since there's no real broadcast logic in this test, we just check that no errors were thrown.
-    expect(true).toBe(true)
-  })
+      await datastore.rebroadcastHeads()
+      // Since there's no real broadcast logic in this test, we just check that no errors were thrown.
+      expect(true).toBe(true)
+    })
 
-  it('should return null when retrieving non-existent key', async () => {
-    const key = new Key('/nonexistent/key')
+    it('should return null when retrieving non-existent key', async () => {
+      const key = new Key('/nonexistent/key')
 
-    const retrievedValue = await datastore.get(key)
+      const retrievedValue = await datastore.get(key)
 
-    expect(retrievedValue).toBeNull()
+      expect(retrievedValue).toBeNull()
+    })
   })
 
   describe('Replication', () => {
@@ -246,5 +248,14 @@ describe('Datastore', () => {
         expect(deletedValue).toBeNull()
       }
     }, 8000)
+
+    // it.only('should start a replica', async () => {
+    //   const replicas = await createReplicas(1, 'globaldb-example')
+    //   console.log(replicas[0].dagService.libp2p.getMultiaddrs())
+    //
+    //
+    //   await waitForPropagation(600000)
+    // }, 60000)
+
   })
 })
