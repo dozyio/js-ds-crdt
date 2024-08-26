@@ -815,17 +815,20 @@ export class CRDTDatastore {
     const set = new Set<string>()
 
     for (const head of heads.heads) {
-      await this.printDAGRec(head, 0, getter, set)
+      await this.printDAGRec(head, 0n, getter, set)
     }
   }
 
   private async printDAGRec (
     from: CID,
-    depth: number,
+    depth: bigint,
     getter: CRDTNodeGetter,
     set: Set<string>
   ): Promise<void> {
-    const padding = ' '.repeat(depth)
+    let padding = ''
+    for (let i = 0n; i < depth; i++) {
+      padding += ' '
+    }
 
     if (set.has(from.toString())) {
       // eslint-disable-next-line no-console
@@ -858,7 +861,7 @@ export class CRDTDatastore {
     console.log(line)
 
     for (const link of node.Links) {
-      await this.printDAGRec(link.Hash, depth + 1, getter, set)
+      await this.printDAGRec(link.Hash, depth + 1n, getter, set)
     }
   }
 
