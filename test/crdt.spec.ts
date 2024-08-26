@@ -248,14 +248,5 @@ describe('Datastore', () => {
         expect(deletedValue).toBeNull()
       }
     }, 8000)
-
-    // it.only('should start a replica', async () => {
-    //   const replicas = await createReplicas(1, 'globaldb-example')
-    //   console.log(replicas[0].dagService.libp2p.getMultiaddrs())
-    //
-    //
-    //   await waitForPropagation(600000)
-    // }, 60000)
-
   })
 })

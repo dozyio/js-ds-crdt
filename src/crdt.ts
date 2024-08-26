@@ -129,9 +129,7 @@ export class CRDTDatastore {
     this.queuedChildren = new CidSafeSet()
 
     // debug.enable(`${this.options.loggerPrefix}*`) // 'crdt*,*crdt:trace')
-    // this.logger('test')
-    // this.logger.error('error test')
-    // this.logger.trace('trace test')
+    // debug.enable('*,*trace')
 
     // Initialize the CRDTSet and heads
     this.set = new CRDTSet(
@@ -159,7 +157,7 @@ export class CRDTDatastore {
 
   private async scheduleDagWorker (): Promise<void> {
     try {
-      this.logger('running dagWorker')
+      // this.logger('running dagWorker')
       await this.dagWorker()
     } catch (err) {
       this.logger.error('Error in dagWorker:', err)
@@ -172,7 +170,7 @@ export class CRDTDatastore {
 
   private async scheduleSendJobWorker (): Promise<void> {
     try {
-      this.logger('running sendJobWorker')
+      // this.logger('running sendJobWorker')
       await this.sendJobWorker()
     } catch (err) {
       this.logger.error('Error in sendJobWorker:', err)
@@ -293,6 +291,7 @@ export class CRDTDatastore {
     const job = await this.dequeueJob()
     if (job === null) return
 
+    this.logger('dagWorker has job')
     let children: CID[]
     try {
       children = await this.processNode(
@@ -327,6 +326,7 @@ export class CRDTDatastore {
     const job = await this.dequeueSendJob()
     if (job === null) return
 
+    this.logger('sendJobWorker has job')
     await this.enqueueJob(job)
   }
 

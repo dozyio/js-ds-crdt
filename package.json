@@ -25,11 +25,12 @@
     "parserOptions": {
       "project": true,
       "sourceType": "module"
-    }
+    },
   },
   "scripts": {
     "build": "aegir build",
     "test": "vitest run --hideSkippedTests --allowOnly",
+    "test:single": "vitest replicate --hideSkippedTests --allowOnly ",
     "test:bench": "vitest bench",
     "test:watch": "vitest",
     "clean": "aegir clean",
