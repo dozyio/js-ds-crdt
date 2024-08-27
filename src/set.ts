@@ -1,6 +1,6 @@
 import { BloomFilter } from '@libp2p/utils/filters'
 import { Mutex } from 'async-mutex'
-import { type Datastore, Key, type Pair, type Query } from 'interface-datastore'
+import { type Batch, type Datastore, Key, type Pair, type Query } from 'interface-datastore'
 import { compareUint8Arrays } from './utils'
 import type * as pb from './pb/delta'
 import type { Logger } from '@libp2p/logger'
@@ -316,7 +316,7 @@ export class CRDTSet {
   }
 
   private async setValue (
-    writeStore: Datastore,
+    writeStore: Datastore | Batch,
     key: string,
     id: string,
     value: Uint8Array,
@@ -366,7 +366,7 @@ export class CRDTSet {
   }
 
   private async setPriority (
-    writeStore: Datastore,
+    writeStore: Datastore | Batch,
     key: string,
     prio: bigint
   ): Promise<void> {
@@ -386,9 +386,12 @@ export class CRDTSet {
     await this.putElemsMux.runExclusive(async () => {
       if (elems.length === 0) return
 
-      const store = this.store
-      if ('batch' in store && typeof store.batch === 'function') {
-        store.batch()
+      let store
+
+      if ('batch' in this.store && typeof this.store.batch === 'function') {
+        store = this.store.batch()
+      } else {
+        store = this.store
       }
 
       for (const elem of elems) {
@@ -414,7 +417,14 @@ export class CRDTSet {
   public async putTombs (tombs: pb.delta.Element[]): Promise<void> {
     if (tombs.length === 0) return
 
-    const store = this.store
+    let store
+
+    if ('batch' in this.store && typeof this.store.batch === 'function') {
+      store = this.store.batch()
+    } else {
+      store = this.store
+    }
+
     for (const tomb of tombs) {
       const elemKey = tomb.key
       const k = this.tombsPrefix(elemKey).child(new Key(tomb.id))
@@ -427,6 +437,10 @@ export class CRDTSet {
       if (this.deleteHook !== undefined) {
         this.deleteHook(elemKey)
       }
+    }
+
+    if ('commit' in store && typeof store.commit === 'function') {
+      await store.commit()
     }
   }
 
