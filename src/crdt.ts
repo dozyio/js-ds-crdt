@@ -222,7 +222,6 @@ export class CRDTDatastore {
   }
 
   private handleNext (): void {
-    // if (!this.broadcaster) return // offline
     this.broadcaster.setHandler(async (data: Uint8Array) => {
       try {
         this.logger('Handling incoming pubsub message')
