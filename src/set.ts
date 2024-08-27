@@ -283,7 +283,8 @@ export class CRDTSet {
   // Check if a key is in the tombstones
   private async inTombsKeyID (key: string, id: string): Promise<boolean> {
     const k = this.tombsPrefix(key).child(new Key(id))
-    return this.store.has(k)
+    const exists = await this.store.has(k)
+    return exists
   }
 
   // Check if a key is not tombstoned
