@@ -109,16 +109,52 @@ export class CRDTSet {
     const results = this.store.query(q)
 
     for await (const result of results) {
-      const id = result.key.toString().replace(prefix.toString(), '')
-      if (new Key(id).isTopLevel()) {
-        const deleted = await this.inTombsKeyID(key, id)
-        // if (!deleted && delta?.tombstones != null && delta.tombstones.length > 0) {
-        if (!deleted && delta?.tombstones != null) {
-          delta.tombstones.push({ key, id, value: new Uint8Array() })
-        }
+      const id = this.removePrefix(result.key.toString(), prefix.toString())
+
+      if (!this.rawKey(id).isTopLevel()) {
+        // our prefix matches blocks from other keys i.e. our
+        // prefix is "hello" and we have a different key like
+        // "hello/bye" so we have a block id like
+        // "bye/<block>". If we got the right key, then the id
+        // should be the block id only.
+        continue
+      }
+
+      // check if its already tombed, which case don't add it to the
+      // Rmv delta set.
+      const deleted = await this.inTombsKeyID(key, id)
+      // if (!deleted && delta?.tombstones != null && delta.tombstones.length > 0) {
+      // if (!deleted && delta?.tombstones != null) {
+      if (!deleted) {
+        delta.tombstones.push({ key, id, value: new Uint8Array() })
       }
     }
     return delta
+  }
+
+  private removePrefix (str: string, prefix: string): string {
+    if (str.startsWith(prefix)) {
+      return str.substring(prefix.length)
+    }
+    return str
+  }
+
+  // rawKey creates a new Key without safety checking the input. Use with care.
+  private rawKey (s: string): Key {
+    // accept an empty string and fix it to avoid special cases
+    // elsewhere
+    if (s.length === 0) {
+      return new Key('/')
+    }
+
+    // perform a quick sanity check that the key is in the correct
+    // format, if it is not then it is a programmer error and it is
+    // okay to panic
+    if (s.length === 0 || s[0] !== '/' || (s.length > 1 && s[s.length - 1] === '/')) {
+      throw new Error('invalid datastore key: ' + s)
+    }
+
+    return new Key(s)
   }
 
   public async element (key: string): Promise<Uint8Array | null> {
