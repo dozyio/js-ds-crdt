@@ -1,7 +1,7 @@
 import { BloomFilter } from '@libp2p/utils/filters'
 import { Mutex } from 'async-mutex'
 import { type Batch, type Datastore, Key, type Pair, type Query } from 'interface-datastore'
-import { compareUint8Arrays } from './utils'
+import { compareUint8Arrays, putUvarint, uvarint } from './utils'
 import type * as pb from './pb/delta'
 import type { Logger } from '@libp2p/logger'
 
@@ -13,7 +13,7 @@ const valueSuffix = 'v'
 const prioritySuffix = 'p'
 
 // The Go implementation uses a bloom filter with a size of 30 MiB and 2 hashes.
-// We use a smaller size and hash count as a trade-off
+// We use a smaller size as a trade-off
 const TombstonesBloomFilterSize = 1024 * 1024 * 8 // 1 MiB
 const TombstonesBloomFilterHashes = 2
 
@@ -67,7 +67,8 @@ export class CRDTSet {
       return
     }
 
-    const tombsPrefix = this.keyPrefix(tombsNs)
+    const tombsPrefix = this.keyPrefix(tombsNs) // /ns/tombs
+
     const q: Query = {
       prefix: tombsPrefix.toString()
       // keysOnly: true, // TODO look at pair filter
@@ -77,7 +78,13 @@ export class CRDTSet {
     let nTombs = 0
 
     for await (const result of results) {
-      const key = new Key(result.key.toString()).parent()
+      const keyStr = result.key.toString()
+      const trimmedKeyStr = keyStr.startsWith(tombsPrefix.toString())
+        ? keyStr.slice(tombsPrefix.toString().length)
+        : keyStr
+
+      const key = new Key(trimmedKeyStr).parent()
+
       this.tombstonesBloom.add(key.toString())
       nTombs++
     }
@@ -101,11 +108,14 @@ export class CRDTSet {
       tombstones: [],
       priority: BigInt(0)
     }
+
+    // /namespace/<key>/elements
     const prefix = this.elemsPrefix(key)
     const q: Query = {
       prefix: prefix.toString()
       // keysOnly: true // TODO look at pair filter
     }
+
     const results = this.store.query(q)
 
     for await (const result of results) {
@@ -176,6 +186,7 @@ export class CRDTSet {
   }
 
   // Return all elements in the set
+  // TODO should probably return an async iterator
   public async elements (q: Query): Promise<Pair[]> {
     if (q.prefix === null || q.prefix === undefined || q.prefix === '') {
       throw new Error('Query prefix is required')
@@ -188,6 +199,12 @@ export class CRDTSet {
       .toString()
     const vSuffix = `/${valueSuffix}`
 
+    // We are going to be reading everything in the /set/ namespace which
+    // will return items in the form:
+    // * /set/<key>/value
+    // * /set<key>/priority (a Uvarint)
+    // TODO see benchmark notes in set.go
+
     const setQuery: Query = {
       prefix: setQueryPrefix
       // keysOnly: false, // TODO look at pair filter
@@ -198,12 +215,24 @@ export class CRDTSet {
     const finalResults: Pair[] = []
 
     for await (const result of results) {
-      if (!result.key.toString().endsWith(vSuffix)) continue
+      // We will be getting keys in the form of
+      // /namespace/keys/<key>/v and /namespace/keys/<key>/p
+      // We discard anything not ending in /v and sanitize
+      // those from:
+      // /namespace/keys/<key>/v -> <key>
 
-      const key = result.key
-        .toString()
-        .replace(keyNamespacePrefix.toString(), '')
-        .replace(`/${valueSuffix}`, '')
+      if (!result.key.toString().endsWith(vSuffix)) {
+        continue
+      }
+
+      let key = result.key.toString()
+      if (key.startsWith(keyNamespacePrefix.toString())) {
+        key = key.slice(keyNamespacePrefix.toString().length)
+      }
+
+      if (key.endsWith('/' + valueSuffix)) {
+        key = key.slice(0, key.length - ('/' + valueSuffix).length)
+      }
 
       const inSet = await this.checkNotTombstoned(key)
       if (!inSet) continue
@@ -223,9 +252,12 @@ export class CRDTSet {
   public async inSet (key: string): Promise<boolean> {
     const valueK = this.valueKey(key)
     const exists = await this.store.has(valueK)
-    if (!exists) return false
+    if (!exists) {
+      return false
+    }
 
-    return this.checkNotTombstoned(key)
+    const result = await this.checkNotTombstoned(key)
+    return result
   }
 
   // Perform a sync against all the paths associated with a key prefix
@@ -255,25 +287,29 @@ export class CRDTSet {
   }
 
   // Helper methods for generating keys
-
+  // /namespace/<key>
   private keyPrefix (key: string): Key {
     return this.namespace.child(new Key(key))
   }
 
+  // /namespace/elems/<key>
   private elemsPrefix (key: string): Key {
     return this.keyPrefix(elemsNs).child(new Key(key))
   }
 
+  // /namespace/tombs/<key>
   private tombsPrefix (key: string): Key {
     return this.keyPrefix(tombsNs).child(new Key(key))
   }
 
+  // /namespace/keys/<key>/value
   private valueKey (key: string): Key {
     return this.keyPrefix(keysNs)
       .child(new Key(key))
       .child(new Key(valueSuffix))
   }
 
+  // /namespace/keys/<key>/priority
   private priorityKey (key: string): Key {
     return this.keyPrefix(keysNs)
       .child(new Key(key))
@@ -288,6 +324,17 @@ export class CRDTSet {
   }
 
   // Check if a key is not tombstoned
+  // Returns true when we have a key/block combination in the
+  // elements set that has not been tombstoned.
+  //
+  // Warning: In order to do a quick bloomfilter check, this assumes the key is
+  // in elems already. Any code calling this function already has verified
+  // that there is a value-key entry for the key, thus there must necessarily
+  // be a non-empty set of key/block in elems.
+  //
+  // Put otherwise: this code will misbehave when called directly to check if an
+  // element exists. See Element()/InSet() etc..
+
   private async checkNotTombstoned (key: string): Promise<boolean> {
     if (this.tombstonesBloom !== undefined) {
       if (!this.tombstonesBloom.has(key)) {
@@ -295,6 +342,7 @@ export class CRDTSet {
       }
     }
 
+    // /namespace/elems/<key>
     const prefix = this.elemsPrefix(key)
     const q: Query = {
       prefix: prefix.toString()
@@ -302,18 +350,34 @@ export class CRDTSet {
     }
     const results = this.store.query(q)
 
+    // loop all the /namespace/elems/<key>/<block_cid>.
     for await (const result of results) {
-      const id = result.key.toString().replace(prefix.toString(), '')
-      if (new Key(id).isTopLevel()) {
-        const inTomb = await this.inTombsKeyID(key, id)
-        if (!inTomb) {
-          return true
-        }
+      let id = result.key.toString()
+      if (id.startsWith(prefix.toString())) {
+        id = id.slice(prefix.toString().length)
+      }
+
+      if (!this.rawKey(id).isTopLevel()) {
+        // our prefix matches blocks from other keys i.e. our
+        // prefix is "hello" and we have a different key like
+        // "hello/bye" so we have a block id like
+        // "bye/<block>". If we got the right key, then the id
+        // should be the block id only.
+        continue
+      }
+
+      // if not tombstoned, we have it
+      const inTomb = await this.inTombsKeyID(key, id)
+      if (!inTomb) {
+        return true
       }
     }
 
     return false
   }
+
+  // sets a value if priority is higher. When equal, it sets if the
+  // value is lexicographically higher than the current value.
 
   private async setValue (
     writeStore: Datastore | Batch,
@@ -322,21 +386,35 @@ export class CRDTSet {
     value: Uint8Array,
     prio: bigint
   ): Promise<void> {
+    // If this key was tombstoned already, do not store/update the value
+    // at all.
+
     const deleted = await this.inTombsKeyID(key, id)
-    if (deleted) return
+    if (deleted) {
+      return
+    }
 
     const curPrio = await this.getPriority(key)
-    if (
-      prio > curPrio ||
-      (prio === curPrio &&
-        compareUint8Arrays(value, await this.store.get(this.valueKey(key))) > 0)
-    ) {
-      // New priority is higher, or priorities are equal but value is lexicographically greater
-      await writeStore.put(this.valueKey(key), value)
-      await this.setPriority(writeStore, key, prio)
-      if (this.putHook !== undefined) {
-        this.putHook(key, value)
+
+    if (prio < curPrio) {
+      return
+    }
+
+    const valueK = this.valueKey(key)
+
+    if (prio === curPrio) {
+      const curValue = await this.store.get(valueK)
+      if (compareUint8Arrays(curValue, value) >= 0) {
+        return
       }
+    }
+
+    await writeStore.put(valueK, value)
+    await this.setPriority(writeStore, key, prio)
+
+    // trigger put hook
+    if (this.putHook !== undefined) {
+      this.putHook(key, value)
     }
   }
 
@@ -348,10 +426,12 @@ export class CRDTSet {
         return BigInt(0)
       }
 
-      const view = new DataView(data.buffer)
-      const prio = view.getBigUint64(0, true)
+      const [prio, n] = uvarint(data)
+      if (n <= 0) {
+        throw new Error('error decoding priority')
+      }
 
-      return prio - BigInt(1)
+      return prio - 1n
     } catch (error: unknown) {
       const err = error as Error
       if (
@@ -370,14 +450,27 @@ export class CRDTSet {
     key: string,
     prio: bigint
   ): Promise<void> {
-    const prioK = this.priorityKey(key)
-    const buf = new Uint8Array(8)
-    const view = new DataView(buf.buffer)
-    view.setBigUint64(0, prio + BigInt(1), true)
+    const maxVarintLen64 = 10
 
-    await writeStore.put(prioK, buf)
+    const prioK = this.priorityKey(key)
+    const buf = new Uint8Array(maxVarintLen64)
+    const n = putUvarint(buf, prio + 1n)
+    if (n === 0) {
+      throw new Error('encoding priority failed')
+    }
+
+    await writeStore.put(prioK, buf.slice(0, n))
   }
 
+  // putElems adds items to the "elems" set. It will also set current
+  // values and priorities for each element. This needs to run in a lock,
+  // as otherwise races may occur when reading/writing the priorities, resulting
+  // in bad behaviours.
+  //
+  // Technically the lock should only affect the keys that are being written,
+  // but with the batching optimization the locks would need to be hold until
+  // the batch is written), and one lock per key might be way worse than a single
+  // global lock in the end.
   public async putElems (
     elems: pb.delta.Element[],
     id: string,
@@ -397,9 +490,9 @@ export class CRDTSet {
       for (const elem of elems) {
         elem.id = id
         const key = elem.key
+        // /namespace/elems/<key>/<id>
         const k = this.elemsPrefix(key).child(new Key(id))
 
-        // Store an empty value for the element in the datastore
         await store.put(k, new Uint8Array())
 
         // Set the value and priority
@@ -415,7 +508,9 @@ export class CRDTSet {
 
   // Put tombstones into the set
   public async putTombs (tombs: pb.delta.Element[]): Promise<void> {
-    if (tombs.length === 0) return
+    if (tombs.length === 0) {
+      return
+    }
 
     let store
 
@@ -425,7 +520,10 @@ export class CRDTSet {
       store = this.store
     }
 
+    const deletedElems = new Set<string>()
+
     for (const tomb of tombs) {
+      // /namespace/tombs/<key>/<id>
       const elemKey = tomb.key
       const k = this.tombsPrefix(elemKey).child(new Key(tomb.id))
       await store.put(k, new Uint8Array())
@@ -434,8 +532,12 @@ export class CRDTSet {
         this.tombstonesBloom.add(elemKey)
       }
 
+      // Ensure deleteHook is only called once per element
       if (this.deleteHook !== undefined) {
-        this.deleteHook(elemKey)
+        if (!deletedElems.has(elemKey)) {
+          deletedElems.add(elemKey)
+          this.deleteHook(elemKey)
+        }
       }
     }
 

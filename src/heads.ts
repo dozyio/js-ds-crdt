@@ -5,7 +5,8 @@ import { CID } from 'multiformats/cid'
 import {
   compareUint8Arrays,
   dsKeyToCidV1,
-  multihashToDsKey
+  multihashToDsKey,
+  uvarint
 } from './utils'
 import type { Logger } from '@libp2p/logger'
 import type { Batch, Datastore, Query } from 'interface-datastore'
@@ -57,7 +58,7 @@ export class Heads {
   }
 
   public async replace (h: CID, c: CID, height: bigint): Promise<void> {
-    this.logger('replacing DAG head:', h.toString(), ' -> ', c.toString(), '(new height: ', height, ')')
+    this.logger(`replacing DAG head: ${h.toString()} -> ${c.toString()} (new height: ${height})`)
     // Check if the original CID is among the current heads
     const { isHead } = await this.isHead(h)
     if (!isHead) {
@@ -175,7 +176,7 @@ export class Heads {
       try {
         const headCid = dsKeyToCidV1(new Key(multibaseStr), dagPb.code)
 
-        const [height, n] = this.uvarint(r.value.buffer)
+        const [height, n] = uvarint(r.value.buffer)
         if (n <= 0) {
           throw new Error('error decoding height')
         }
@@ -186,32 +187,5 @@ export class Heads {
         throw error
       }
     }
-  }
-
-  private uvarint (buf: ArrayBufferLike): [bigint, number] {
-    const MaxVarintLen64 = 10
-    const view = new Uint8Array(buf)
-    let x = 0n
-    let s = 0
-
-    for (let i = 0; i < view.length; i++) {
-      if (i === MaxVarintLen64) {
-        // Catch byte reads past MaxVarintLen64.
-        return [0n, -(i + 1)] // overflow
-      }
-
-      const b = view[i]
-      if (b < 0x80) {
-        if (i === MaxVarintLen64 - 1 && b > 1) {
-          return [0n, -(i + 1)] // overflow
-        }
-        return [x | (BigInt(b) << BigInt(s)), i + 1]
-      }
-
-      x |= BigInt(b & 0x7f) << BigInt(s)
-      s += 7
-    }
-
-    return [0n, 0]
   }
 }

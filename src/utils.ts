@@ -109,3 +109,45 @@ export function compareUint8Arrays (
 
   return 0 // arrays are equal
 }
+export function uvarint (buf: ArrayBufferLike): [bigint, number] {
+  const MaxVarintLen64 = 10
+  const view = new Uint8Array(buf)
+  let x = 0n
+  let s = 0
+
+  for (let i = 0; i < view.length; i++) {
+    if (i === MaxVarintLen64) {
+      // Catch byte reads past MaxVarintLen64.
+      return [0n, -(i + 1)] // overflow
+    }
+
+    const b = view[i]
+    if (b < 0x80) {
+      if (i === MaxVarintLen64 - 1 && b > 1) {
+        return [0n, -(i + 1)] // overflow
+      }
+      return [x | (BigInt(b) << BigInt(s)), i + 1]
+    }
+
+    x |= BigInt(b & 0x7f) << BigInt(s)
+    s += 7
+  }
+
+  return [0n, 0]
+}
+
+export function putUvarint (buf: Uint8Array, x: bigint): number {
+  let i = 0
+
+  while (x >= 0x80n) { // 0x80n is the BigInt literal for 128
+    buf[i] = Number(x & 0xffn) | 0x80 // Store the lower 7 bits with the continuation bit
+    x >>= 7n // Shift right by 7 bits
+    i++
+    if (i >= buf.length) {
+      throw new Error('Buffer too small')
+    }
+  }
+
+  buf[i] = Number(x) // Store the last 7 bits without the continuation bit
+  return i + 1
+}

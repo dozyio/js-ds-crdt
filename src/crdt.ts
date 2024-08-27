@@ -601,7 +601,8 @@ export class CRDTDatastore {
 
   public async get (key: Key): Promise<Uint8Array | null> {
     this.logger('getting key', key.toString())
-    return this.set.element(key.toString())
+    const result = await this.set.element(key.toString())
+    return result
   }
 
   public async put (key: Key, value: Uint8Array): Promise<void> {
