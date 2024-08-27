@@ -140,6 +140,7 @@ export class CRDTDatastore {
       this.options.putHook,
       this.options.deleteHook
     )
+
     this.heads = new Heads(
       store,
       namespace.child(new Key(headsNs)),
