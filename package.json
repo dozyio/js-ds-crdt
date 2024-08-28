@@ -1,6 +1,6 @@
 {
   "name": "js-ds-crdt",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "main": "dist/index.min.js",
   "license": "MIT",
   "type": "module",
