@@ -3,7 +3,9 @@ import { Mutex } from 'async-mutex'
 import {
   Key,
   type Datastore as DSDatastore,
-  type Batch as DSBatch
+  type Batch as DSBatch,
+  type Query,
+  type Pair
 } from 'interface-datastore'
 import { CID } from 'multiformats/cid'
 // import debug from 'weald'
@@ -598,6 +600,11 @@ export class CRDTDatastore {
       this.logger.error(`Error marking block ${c} as processed: ${err}`)
       throw err
     }
+  }
+
+  public async query (q: Query): Promise<Pair[]> {
+    // TODO needs work
+    return this.set.elements(q)
   }
 
   public async get (key: Key): Promise<Uint8Array | null> {

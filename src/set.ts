@@ -185,11 +185,11 @@ export class CRDTSet {
   // Return all elements in the set
   // TODO should probably return an async iterator
   public async elements (q: Query): Promise<Pair[]> {
-    if (q.prefix === null || q.prefix === undefined || q.prefix === '') {
-      throw new Error('Query prefix is required')
-    }
+    // if (q.prefix === null || q.prefix === undefined || q.prefix === '') {
+    //   throw new Error('Query prefix is required')
+    // }
 
-    const srcQueryPrefixKey = new Key(q.prefix)
+    const srcQueryPrefixKey = new Key(q.prefix ?? '')
     const keyNamespacePrefix = this.keyPrefix(keysNs)
     const setQueryPrefix = keyNamespacePrefix
       .child(srcQueryPrefixKey)

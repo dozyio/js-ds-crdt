@@ -1,7 +1,7 @@
 {
   "name": "js-ds-crdt",
-  "version": "0.0.20",
-  "main": "dist/lib/index.js",
+  "version": "0.0.21",
+  "main": "dist/index.min.js",
   "license": "MIT",
   "type": "module",
   "author": "dozyio",
