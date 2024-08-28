@@ -146,8 +146,52 @@ describe('CRDTNodeGetter', () => {
     }
     const node = await CRDTNodeGetter.makeNode(mockDelta, [cid1, cid2])
 
-    expect(node.Links).toHaveLength(2)
-    expect(node.Links[0].Hash.equals(cid1)).toBe(true)
-    expect(node.Links[1].Hash.equals(cid2)).toBe(true)
+    const links = Array.from(node.links())
+
+    expect(links).toHaveLength(2)
+    expect(links[0][1].equals(cid1)).toBe(true)
+    expect(links[1][1].equals(cid2)).toBe(true)
+  })
+})
+
+describe('makeNode', () => {
+  it('should create a BlockView with encoded delta data and links', async () => {
+    const d: delta.Delta = { some: 'data' } as any // Replace 'any' with the correct type for delta.Delta
+    const heads: CID[] = [
+      CID.parse('bafybeigdyrzt5xjzqmtgmbyew7zkk64un4qxpv6ysgtg3dvlnsmjqyulxa')
+    ]
+
+    const result = await CRDTNodeGetter.makeNode(d, heads)
+
+    expect(result).toBeDefined()
+    expect(result).toHaveProperty('cid')
+    expect(result).toHaveProperty('value')
+    expect(result.value).toHaveProperty('Data')
+  })
+
+  it('should handle null delta and create a BlockView with empty data', async () => {
+    const heads: CID[] = [
+      CID.parse('bafybeigdyrzt5xjzqmtgmbyew7zkk64un4qxpv6ysgtg3dvlnsmjqyulxa')
+    ]
+
+    const result = await CRDTNodeGetter.makeNode(null, heads)
+
+    expect(result).toBeDefined()
+    expect(result).toHaveProperty('cid')
+    expect(result).toHaveProperty('value')
+    expect(result.value).toHaveProperty('Data')
+    expect((result.value as { Data: Uint8Array }).Data).toBeInstanceOf(Uint8Array)
+    expect((result.value as { Data: Uint8Array }).Data.length).toBe(0)
+  })
+
+  it('should handle an empty heads array', async () => {
+    const d: delta.Delta = { some: 'data' } as any // Replace 'any' with the correct type for delta.Delta
+
+    const result = await CRDTNodeGetter.makeNode(d, [])
+
+    expect(result).toBeDefined()
+    expect(result).toHaveProperty('cid')
+    expect(result).toHaveProperty('value')
+    expect(result.value).toHaveProperty('Data')
   })
 })

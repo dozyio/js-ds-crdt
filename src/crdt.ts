@@ -1,5 +1,3 @@
-import { createNode } from '@ipld/dag-pb'
-import * as codec from '@ipld/dag-pb'
 import { prefixLogger } from '@libp2p/logger'
 import { Mutex } from 'async-mutex'
 import {
@@ -7,9 +5,7 @@ import {
   type Datastore as DSDatastore,
   type Batch as DSBatch
 } from 'interface-datastore'
-import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
-import { sha256 as hasher } from 'multiformats/hashes/sha2'
 // import debug from 'weald'
 import { Heads } from './heads'
 import { CRDTNodeGetter } from './ipld'
@@ -17,7 +13,6 @@ import * as bpb from './pb/bcast'
 import * as dpb from './pb/delta'
 import { CRDTSet, type IBloomFilter } from './set'
 import { multihashToDsKey } from './utils'
-import type * as dagPb from '@ipld/dag-pb'
 import type { Identify } from '@libp2p/identify'
 import type {
   ComponentLogger,
@@ -28,6 +23,7 @@ import type {
   ServiceMap
 } from '@libp2p/interface'
 import type { HeliaLibp2p } from 'helia'
+import type { BlockView } from 'multiformats'
 
 const headsNs = 'h' // heads
 const setNs = 's' // set
@@ -390,10 +386,10 @@ export class CRDTDatastore {
         await this.handleBranch(head, cur)
       }
 
-      for (const link of node.Links) {
-        if (!queued.has(link.Hash.toString())) {
-          nodes.push({ head, node: link.Hash })
-          queued.add(link.Hash.toString())
+      for (const link of node.links()) {
+        if (!queued.has(link[1].toString())) {
+          queued.add(link[1].toString())
+          nodes.push({ head, node: link[1] })
         }
       }
 
@@ -528,6 +524,12 @@ export class CRDTDatastore {
       return
     }
 
+    // Special case for root
+    if (rootPrio === 0n) {
+      const prio = await ng.getPriority(children[0])
+      rootPrio = prio
+    }
+
     const goodDeltas = new Set<string>()
 
     for await (const deltaOpt of ng.getDeltas(children)) {
@@ -545,14 +547,8 @@ export class CRDTDatastore {
         continue
       }
 
-      const value = createNode(
-        deltaOpt.node.Data ?? new Uint8Array(),
-        deltaOpt.node.Links
-      )
-      const block = await Block.encode({ value, codec, hasher })
-
-      goodDeltas.add(block.cid.toString())
-      this.logger('goodDeltas.set', block.cid.toString())
+      goodDeltas.add(deltaOpt.node.cid.toString())
+      this.logger('goodDeltas.set', deltaOpt.node.cid.toString())
 
       const job = new DagJob(
         session,
@@ -566,6 +562,11 @@ export class CRDTDatastore {
       this.sendJobs.push(job)
     }
 
+    // This is a safe-guard in case GetDeltas() returns less deltas than
+    // asked for. It clears up any children that could not be fetched from
+    // the queue. The rest will remove themselves in processNode().
+    // Hector: as far as I know, this should not execute unless errors
+    // happened.
     for (const child of children) {
       if (!goodDeltas.has(child.toString())) {
         this.logger.error(
@@ -645,52 +646,43 @@ export class CRDTDatastore {
       throw err
     }
 
-    const value = createNode(nd.Data ?? new Uint8Array(), nd.Links)
-    const block = await Block.encode({ value, codec, hasher })
-
     let children: CID[]
     try {
-      children = await this.processNode(block.cid, height, delta, nd)
+      children = await this.processNode(nd.cid, height, delta, nd)
       if (children.length !== 0) {
         this.logger('bug: created a block to unknown children')
       }
     } catch (err: any) {
-      this.logger.error(`Error processing node ${block.cid}: ${err}`)
+      this.logger.error(`Error processing node ${nd.cid}: ${err}`)
       await this.markDirty()
     }
 
-    return block.cid
+    return nd.cid
   }
 
   private async putBlock (
     heads: CID[],
     height: bigint,
     delta: dpb.delta.Delta
-  ): Promise<dagPb.PBNode> {
+  ): Promise<BlockView> {
     this.logger('putting block', height.toString())
-    delta.priority = height
-
-    const links: codec.PBLink[] = []
-    for (const head of heads) {
-      links.push({ Name: '', Hash: head })
+    if (delta != null) {
+      delta.priority = height
     }
-    const nd = createNode(dpb.delta.Delta.encode(delta), links)
-    const block = await Block.encode({ value: nd, codec, hasher })
-    await this.dagService.blockstore.put(block.cid, block.bytes)
 
-    return nd
+    const node = await CRDTNodeGetter.makeNode(delta, heads)
+    await this.dagService.blockstore.put(node.cid, node.bytes)
+
+    return node
   }
 
   public async processNode (
     root: CID,
     rootPrio: bigint,
     delta: dpb.delta.Delta,
-    node: dagPb.PBNode
+    node: BlockView
   ): Promise<CID[]> {
-    const value = createNode(node.Data ?? new Uint8Array(), node.Links)
-    const block = await Block.encode({ value, codec, hasher })
-
-    const current = block.cid
+    const current = node.cid
     const blockKey = multihashToDsKey(current.multihash.bytes).toString()
 
     try {
@@ -711,7 +703,7 @@ export class CRDTDatastore {
 
     // Remove from the set that has the children which are queued for processing.
     try {
-      this.queuedChildren.remove(block.cid)
+      this.queuedChildren.remove(node.cid)
     } catch (err: any) {
       this.logger.error(`Error removing from queuedChildren: ${err}`)
       return []
@@ -722,7 +714,8 @@ export class CRDTDatastore {
     )
 
     try {
-      const links = node.Links
+      const links = Array.from(node.links())
+      // const links = node.links()
       const children: CID[] = []
 
       // We reached the bottom. Our head must become a new head.
@@ -733,10 +726,12 @@ export class CRDTDatastore {
       // Return children that:
       // a) Are not processed
       // b) Are not going to be processed by someone else.
-      let addedAsHead = false
+      // For every other child, add our node as Head.
+
+      let addedAsHead = false // small optimization to avoid adding as head multiple times.
 
       for (const link of links) {
-        const child = link.Hash
+        const child = link[1] // cid
 
         const { isHead } = await this.heads.isHead(child)
         const isProcessed = await this.isProcessed(child)
@@ -747,7 +742,13 @@ export class CRDTDatastore {
           await this.heads.replace(child, root, rootPrio)
           addedAsHead = true
 
-          // If this head was already processed, continue.
+          // If this head was already processed, continue this
+          // protects the case when something is a head but was
+          // not processed (potentially could happen during
+          // first sync when heads are set before processing, a
+          // both a node and its child are heads - which I'm not
+          // sure if it can happen at all, but good to safeguard
+          // for it).
           if (isProcessed) {
             continue
           }
@@ -853,16 +854,16 @@ export class CRDTDatastore {
     }
 
     line += '}. Links: {'
-    for (const link of node.Links) {
-      line += `${link.Hash.toString().slice(-4)},`
+    for (const link of node.links()) {
+      line += `${link[1].toString().slice(-4)},`
     }
 
     line += '}:'
     // eslint-disable-next-line no-console
     console.log(line)
 
-    for (const link of node.Links) {
-      await this.printDAGRec(link.Hash, depth + 1n, getter, set)
+    for (const link of node.links()) {
+      await this.printDAGRec(link[1], depth + 1n, getter, set)
     }
   }
 
@@ -952,7 +953,7 @@ class DagJob {
     public root: CID,
     public rootPrio: bigint,
     public delta: dpb.delta.Delta,
-    public node: dagPb.PBNode,
+    public node: BlockView,
     public children: CID[]
   ) { }
 }

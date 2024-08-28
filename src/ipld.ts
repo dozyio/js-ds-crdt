@@ -6,10 +6,11 @@ import { delta } from './pb/delta'
 import type { Logger } from '@libp2p/interface'
 import type { Blockstore } from 'interface-blockstore'
 import type { AbortOptions } from 'interface-store'
+import type { BlockView } from 'multiformats'
 
 export interface DeltaOption {
   delta?: delta.Delta
-  node?: codec.PBNode
+  node?: BlockView
   err?: Error
 }
 
@@ -27,9 +28,9 @@ export class CRDTNodeGetter {
   async getDelta (
     cid: CID,
     options?: AbortOptions
-  ): Promise<{ node: codec.PBNode, delta: delta.Delta }> {
+  ): Promise<{ node: BlockView, delta: delta.Delta }> {
     this.logger('getting delta', cid.toString())
-    const node = await this.getNode(cid, options)
+    const node = await this.get(cid, options)
     this.logger('getDelta node', node)
     const delta = this.extractDelta(node)
     return { node, delta }
@@ -46,15 +47,31 @@ export class CRDTNodeGetter {
     const self = this
 
     async function * generator (): AsyncIterable<DeltaOption> {
-      for await (const { node, error } of self.getNodes(cids, options)) {
+      for await (const { node, error } of self.getMany(cids, options)) {
         if (error !== undefined) {
           yield { err: error }
           continue
         }
+
+        if (node === null || node === undefined) {
+          yield { err: new Error('Node is undefined') }
+          continue
+        }
+
         try {
-          if (node?.Data === undefined) {
+          if (typeof node.value !== 'object' || node.value === null || !('Data' in node.value)) {
+            yield { err: new Error('Node has no data undefined') }
             continue
           }
+
+          const data = (node.value as { Data: Uint8Array }).Data
+
+          if (data.length === 0) {
+            yield { err: new Error('Node has 0 data length') }
+            continue
+            // throw new Error('Node has no data')
+          }
+
           const delta = self.extractDelta(node)
           yield { delta, node }
         } catch (err) {
@@ -66,34 +83,26 @@ export class CRDTNodeGetter {
     return generator()
   }
 
-  private async getNode (
+  private async get (
     cid: CID,
     options?: AbortOptions
-  ): Promise<codec.PBNode> {
+  ): Promise<BlockView> {
     this.logger('getting node', cid.toString())
     const block = await this.blockstore.get(cid, options)
     this.logger('block', block)
     const node = await Block.decode({ bytes: block, codec, hasher })
     this.logger('node', node)
 
-    const links: codec.PBLink[] = []
-    for (const [name, cid] of node.links()) {
-      links.push({
-        Name: name,
-        Hash: cid
-      })
-    }
-
-    return { Data: node.value.Data, Links: links }
+    return node
   }
 
-  private async * getNodes (
+  private async * getMany (
     cids: CID[],
     options?: AbortOptions
-  ): AsyncIterable<{ node?: codec.PBNode, error?: Error }> {
+  ): AsyncIterable<{ node?: BlockView, error?: Error }> {
     for (const cid of cids) {
       try {
-        const node = await this.getNode(cid, options)
+        const node = await this.get(cid, options)
         yield { node }
       } catch (error: any) {
         yield { node: undefined, error }
@@ -101,14 +110,20 @@ export class CRDTNodeGetter {
     }
   }
 
-  private extractDelta (node: codec.PBNode): delta.Delta {
-    if (node?.Data === undefined || node.Data.length === 0) {
+  private extractDelta (node: BlockView): delta.Delta {
+    if (typeof node.value !== 'object' || node.value === null || !('Data' in node.value)) {
+      throw new Error('Node has no data')
+    }
+
+    const data = (node.value as { Data: Uint8Array }).Data
+
+    if (data.length === 0) {
       throw new Error('Node has no data')
     }
 
     try {
       // Attempt to decode the delta; if this fails, an error should be thrown
-      const d = delta.Delta.decode(node.Data)
+      const d = delta.Delta.decode(data)
       return d
     } catch (err) {
       // If decoding fails, treat it as an error similar to how Go's proto.Unmarshal would fail
@@ -116,12 +131,21 @@ export class CRDTNodeGetter {
     }
   }
 
-  static async makeNode (d: delta.Delta, heads: CID[]): Promise<codec.PBNode> {
+  public static async makeNode (d: delta.Delta | null, heads: CID[]): Promise<BlockView> {
+    let data: Uint8Array = new Uint8Array()
+
+    if (d != null) {
+      data = delta.Delta.encode(d)
+    }
+
     const links: codec.PBLink[] = []
     for (const head of heads) {
       links.push({ Name: '', Hash: head })
     }
 
-    return createNode(delta.Delta.encode(d), links)
+    const pbnode = createNode(data, links)
+    const block = await Block.encode({ value: pbnode, codec, hasher })
+
+    return block
   }
 }

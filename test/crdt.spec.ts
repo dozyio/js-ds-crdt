@@ -8,6 +8,7 @@ import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { describe, it, expect, beforeEach } from 'vitest'
 // import debug from 'weald'
 import { CRDTDatastore, type CRDTLibp2pServices } from '../src/crdt'
+import { CRDTNodeGetter } from '../src/ipld'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
 import {
   cmpValues,
@@ -101,20 +102,18 @@ describe('Datastore', () => {
     })
 
     it('should process nodes correctly', async () => {
-      const delta = { priority: 1n, elements: [], tombstones: [] } as any
-      const node = codec.createNode(new Uint8Array(), [])
+      const d = { priority: 1n, elements: [], tombstones: [] } as any
+      const heads: CID[] = [
+        CID.parse('bafybeigdyrzt5xjzqmtgmbyew7zkk64un4qxpv6ysgtg3dvlnsmjqyulxa')
+      ]
 
-      // Simulate adding the node to the DAG service's blockstore (optional, if necessary)
-      const block = await Block.encode({ value: node, codec, hasher })
-      await dagService.blockstore.put(block.cid, block.bytes)
-
-      const cid = block.cid
+      const nd = await CRDTNodeGetter.makeNode(d, heads)
 
       // Now, process the node
-      await datastore.processNode(cid, 1n, delta, node)
+      await datastore.processNode(nd.cid, 1n, d, nd)
 
       // Check if the node is marked as processed
-      const isProcessed = await datastore.isProcessed(cid)
+      const isProcessed = await datastore.isProcessed(nd.cid)
 
       expect(isProcessed).toBe(true)
     })

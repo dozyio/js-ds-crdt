@@ -106,11 +106,12 @@ export class CRDTSet {
     const delta: pb.delta.Delta = {
       elements: [],
       tombstones: [],
-      priority: BigInt(0)
+      priority: 0n
     }
 
     // /namespace/<key>/elements
     const prefix = this.elemsPrefix(key)
+    console.log('remove prefix', prefix.toString())
     const q: Query = {
       prefix: prefix.toString()
       // keysOnly: true // TODO look at pair filter
@@ -119,7 +120,12 @@ export class CRDTSet {
     const results = this.store.query(q)
 
     for await (const result of results) {
-      const id = this.removePrefix(result.key.toString(), prefix.toString())
+      console.log('result', result)
+      let id = result.key.toString()
+
+      if (id.startsWith(prefix.toString())) {
+        id = id.slice(prefix.toString().length)
+      }
 
       if (!this.rawKey(id).isTopLevel()) {
         // our prefix matches blocks from other keys i.e. our
@@ -140,13 +146,6 @@ export class CRDTSet {
       }
     }
     return delta
-  }
-
-  private removePrefix (str: string, prefix: string): string {
-    if (str.startsWith(prefix)) {
-      return str.substring(prefix.length)
-    }
-    return str
   }
 
   // rawKey creates a new Key without safety checking the input. Use with care.
@@ -319,7 +318,9 @@ export class CRDTSet {
   // Check if a key is in the tombstones
   private async inTombsKeyID (key: string, id: string): Promise<boolean> {
     const k = this.tombsPrefix(key).child(new Key(id))
+    // console.log('inTombsKeyID', key, id, k)
     const exists = await this.store.has(k)
+    // console.log('inTombsKeyID has', exists)
     return exists
   }
 
@@ -388,7 +389,6 @@ export class CRDTSet {
   ): Promise<void> {
     // If this key was tombstoned already, do not store/update the value
     // at all.
-
     const deleted = await this.inTombsKeyID(key, id)
     if (deleted) {
       return
@@ -526,6 +526,7 @@ export class CRDTSet {
       // /namespace/tombs/<key>/<id>
       const elemKey = tomb.key
       const k = this.tombsPrefix(elemKey).child(new Key(tomb.id))
+      // console.log('putTombs', k)
       await store.put(k, new Uint8Array())
 
       if (this.tombstonesBloom !== undefined) {

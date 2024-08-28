@@ -54,6 +54,7 @@ describe('CRDTSet', () => {
     await crdtSet.putElems(delta.elements, 'id1', BigInt(1))
 
     const removeDelta = await crdtSet.remove(key)
+    console.log(removeDelta)
     expect(removeDelta.tombstones).toHaveLength(1)
     expect(removeDelta.tombstones[0].key).toBe(key)
 
@@ -111,7 +112,7 @@ describe('CRDTSet', () => {
   })
 
   it('should correctly handle empty putElems and putTombs', async () => {
-    await crdtSet.putElems([], 'id1', BigInt(1))
+    await crdtSet.putElems([], 'id1', 0n)
     await crdtSet.putTombs([])
 
     // No elements should be added or removed
