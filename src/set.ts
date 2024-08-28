@@ -111,7 +111,6 @@ export class CRDTSet {
 
     // /namespace/<key>/elements
     const prefix = this.elemsPrefix(key)
-    console.log('remove prefix', prefix.toString())
     const q: Query = {
       prefix: prefix.toString()
       // keysOnly: true // TODO look at pair filter
@@ -120,7 +119,6 @@ export class CRDTSet {
     const results = this.store.query(q)
 
     for await (const result of results) {
-      console.log('result', result)
       let id = result.key.toString()
 
       if (id.startsWith(prefix.toString())) {
@@ -318,9 +316,7 @@ export class CRDTSet {
   // Check if a key is in the tombstones
   private async inTombsKeyID (key: string, id: string): Promise<boolean> {
     const k = this.tombsPrefix(key).child(new Key(id))
-    // console.log('inTombsKeyID', key, id, k)
     const exists = await this.store.has(k)
-    // console.log('inTombsKeyID has', exists)
     return exists
   }
 
@@ -526,7 +522,6 @@ export class CRDTSet {
       // /namespace/tombs/<key>/<id>
       const elemKey = tomb.key
       const k = this.tombsPrefix(elemKey).child(new Key(tomb.id))
-      // console.log('putTombs', k)
       await store.put(k, new Uint8Array())
 
       if (this.tombstonesBloom !== undefined) {

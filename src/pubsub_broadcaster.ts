@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import { type Identify } from '@libp2p/identify'
 import {
   type Libp2p,

@@ -54,7 +54,6 @@ describe('CRDTSet', () => {
     await crdtSet.putElems(delta.elements, 'id1', BigInt(1))
 
     const removeDelta = await crdtSet.remove(key)
-    console.log(removeDelta)
     expect(removeDelta.tombstones).toHaveLength(1)
     expect(removeDelta.tombstones[0].key).toBe(key)
 

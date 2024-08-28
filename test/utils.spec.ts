@@ -18,7 +18,7 @@ describe('utils.ts', () => {
       0x12, 0x20, 0x03, 0x25, 0x40, 0xd4, 0xa6, 0x77, 0x12, 0x09, 0x20, 0x02
     ])
     const key = newKeyFromBinary(rawKey)
-    const expectedKeyStr = `/${base32.encode(rawKey).toUpperCase()}`
+    const expectedKeyStr = `/${base32.baseEncode(rawKey).toUpperCase()}`
     expect(key.toString()).toBe(expectedKeyStr)
   })
 
@@ -30,7 +30,7 @@ describe('utils.ts', () => {
       ])
     )
     const key = multihashToDsKey(digest.bytes)
-    const expectedKeyStr = `/${base32.encode(digest.bytes).toUpperCase()}`
+    const expectedKeyStr = `/${base32.baseEncode(digest.bytes).toUpperCase()}`
     expect(key.toString()).toBe(expectedKeyStr)
   })
 

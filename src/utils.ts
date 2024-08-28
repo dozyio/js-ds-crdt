@@ -8,7 +8,7 @@ import type { MultihashDigest } from 'multiformats/hashes/interface'
 
 // Exported equivalent to `NewKeyFromBinary` in Go
 export function newKeyFromBinary (rawKey: Uint8Array): Key {
-  const encoded = base32.encode(rawKey).toUpperCase() // Base32 encode without padding
+  const encoded = base32.baseEncode(rawKey).toUpperCase() // Base32 encode without padding
   return new Key(`/${encoded}`)
 }
 
@@ -20,7 +20,7 @@ export function multihashToDsKey (k: Uint8Array): Key {
 // Exported equivalent to `BinaryFromDsKey` in Go
 export function binaryFromDsKey (k: Key): Uint8Array {
   const str = k.toString().slice(1) // Remove the leading '/'
-  return base32.decode(str.toLowerCase()) // Base32 decode (handle case-insensitivity)
+  return base32.baseDecode(str.toLowerCase()) // Base32 decode (handle case-insensitivity)
 }
 
 // Exported equivalent to `DsKeyToMultihash` in Go
