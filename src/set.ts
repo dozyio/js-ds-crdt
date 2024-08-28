@@ -1,6 +1,6 @@
 import { BloomFilter } from '@libp2p/utils/filters'
 import { Mutex } from 'async-mutex'
-import { type Batch, type Datastore, Key, type Pair, type Query } from 'interface-datastore'
+import { type Batch, type Datastore, Key, type KeyQuery, type Pair, type Query } from 'interface-datastore'
 import { compareUint8Arrays, putUvarint, uvarint } from './utils'
 import type * as pb from './pb/delta'
 import type { Logger } from '@libp2p/logger'
@@ -92,13 +92,79 @@ export class CRDTSet {
     this.logger(`Tombstones have bloomed: ${nTombs} tombs.`)
   }
 
-  // Add a new element
+  // Add returns an delta with element
   public add (key: string, value: Uint8Array): pb.delta.Delta {
     return {
       elements: [{ key, value }] as pb.delta.Element[],
       tombstones: [],
       priority: BigInt(0)
     }
+  }
+
+  public cleanKey (key: string): string {
+    if (key === '') {
+      return ''
+    }
+
+    const rooted = key[0] === '/'
+    const n = key.length
+
+    let result = ''
+    let r = 0
+
+    if (rooted) {
+      result += '/'
+      r = 1
+    }
+
+    while (r < n) {
+      if (key[r] === '/') {
+        // Skip redundant slashes
+        r++
+      } else {
+        // Real key element, add a slash if needed
+        if (result !== '/' && result.length > 0) {
+          result += '/'
+        }
+        // Copy element
+        while (r < n && key[r] !== '/') {
+          result += key[r]
+          r++
+        }
+      }
+    }
+
+    return result
+  }
+
+  // queryPrefixFilter is a JS implementation of NaiveQueryApply
+  // https://github.com/ipfs/go-datastore/blob/master/query/query_impl.go#L119
+  private queryPrefixFilter (q: Query | KeyQuery, qr: string): string | null {
+    if (q.prefix !== '' && q.prefix !== undefined && q.prefix !== null) {
+      // Clean the prefix as a key and append / so a prefix of /bar
+      // only finds /bar/baz, not /barbaz.
+      let prefix = q.prefix
+
+      if (prefix.length === 0) {
+        prefix = '/'
+      } else {
+        if (prefix[0] !== '/') {
+          prefix = '/' + prefix
+        }
+
+        prefix = this.cleanKey(prefix)
+      }
+
+      // If the prefix is empty, ignore it.
+      if (prefix !== '/') {
+        const testPrefix = prefix + '/'
+        if (!qr.startsWith(testPrefix)) {
+          return null
+        }
+      }
+    }
+
+    return qr
   }
 
   // Remove an element
@@ -111,15 +177,20 @@ export class CRDTSet {
 
     // /namespace/<key>/elements
     const prefix = this.elemsPrefix(key)
-    const q: Query = {
+    const q: KeyQuery = {
       prefix: prefix.toString()
-      // keysOnly: true // TODO look at pair filter
     }
 
-    const results = this.store.query(q)
+    const results = this.store.queryKeys(q)
 
     for await (const result of results) {
-      let id = result.key.toString()
+      let id: string | null = result.toString()
+
+      id = this.queryPrefixFilter(q, id)
+
+      if (id === null) {
+        continue
+      }
 
       if (id.startsWith(prefix.toString())) {
         id = id.slice(prefix.toString().length)
@@ -341,17 +412,27 @@ export class CRDTSet {
 
     // /namespace/elems/<key>
     const prefix = this.elemsPrefix(key)
-    const q: Query = {
+    const q: KeyQuery = {
       prefix: prefix.toString()
-      // keysOnly: true // TODO look at pair filter
     }
-    const results = this.store.query(q)
+    const results = this.store.queryKeys(q)
 
     // loop all the /namespace/elems/<key>/<block_cid>.
     for await (const result of results) {
-      let id = result.key.toString()
+      let id: string | null = result.toString()
+
+      id = this.queryPrefixFilter(q, id)
+
+      if (id === null) {
+        continue
+      }
+
       if (id.startsWith(prefix.toString())) {
         id = id.slice(prefix.toString().length)
+      }
+
+      if (!id.startsWith('/')) {
+        continue
       }
 
       if (!this.rawKey(id).isTopLevel()) {

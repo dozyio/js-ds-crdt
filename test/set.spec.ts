@@ -256,4 +256,160 @@ describe('CRDTSet', () => {
     const result = await crdtSet.element(key1)
     expect(result).toEqual(value1)
   })
+
+  it('should handle deleting an element with a shorter key', async () => {
+    const key1 = 'key'
+    const key2 = 'key2'
+
+    const value1 = new Uint8Array([1, 2, 3])
+    const value2 = new Uint8Array([7, 8, 9])
+
+    const put1 = crdtSet.putElems(
+      [{ key: key1, value: value1, id: 'id1' }],
+      'id1',
+      BigInt(1)
+    )
+    const put2 = crdtSet.putElems(
+      [{ key: key2, value: value2, id: 'id2' }],
+      'id2',
+      BigInt(2)
+    )
+
+    await Promise.all([put1, put2])
+
+    let result = await crdtSet.element(key1)
+    expect(result).toEqual(value1)
+
+    result = await crdtSet.element(key2)
+    expect(result).toEqual(value2)
+
+    const removeDelta = await crdtSet.remove(key1)
+    expect(removeDelta.tombstones).toHaveLength(1)
+    expect(removeDelta.tombstones[0].key).toBe(key1)
+
+    await crdtSet.putTombs(removeDelta.tombstones)
+
+    result = await crdtSet.element(key1)
+    expect(result).toBeNull()
+
+    result = await crdtSet.element(key2)
+    expect(result).toEqual(value2)
+  })
+
+  it('should handle deleting keys with /', async () => {
+    const key1 = 'key/a'
+    const key2 = 'key/a/1'
+
+    const value1 = new Uint8Array([1, 2, 3])
+    const value2 = new Uint8Array([7, 8, 9])
+
+    const put1 = crdtSet.putElems(
+      [{ key: key1, value: value1, id: 'id1' }],
+      'id1',
+      BigInt(1)
+    )
+    const put2 = crdtSet.putElems(
+      [{ key: key2, value: value2, id: 'id2' }],
+      'id2',
+      BigInt(2)
+    )
+
+    await Promise.all([put1, put2])
+
+    let result = await crdtSet.element(key1)
+    expect(result).toEqual(value1)
+
+    result = await crdtSet.element(key2)
+    expect(result).toEqual(value2)
+
+    const removeDelta = await crdtSet.remove(key1)
+    expect(removeDelta.tombstones).toHaveLength(1)
+    expect(removeDelta.tombstones[0].key).toBe(key1)
+
+    await crdtSet.putTombs(removeDelta.tombstones)
+
+    result = await crdtSet.element(key1)
+    expect(result).toBeNull()
+
+    result = await crdtSet.element(key2)
+    expect(result).toEqual(value2)
+  })
+
+  it('should handle deleting keys with / prefix', async () => {
+    const key1 = '/key/a'
+    const key2 = '/key/a/1'
+
+    const value1 = new Uint8Array([1, 2, 3])
+    const value2 = new Uint8Array([7, 8, 9])
+
+    const put1 = crdtSet.putElems(
+      [{ key: key1, value: value1, id: 'id1' }],
+      'id1',
+      BigInt(1)
+    )
+    const put2 = crdtSet.putElems(
+      [{ key: key2, value: value2, id: 'id2' }],
+      'id2',
+      BigInt(2)
+    )
+
+    await Promise.all([put1, put2])
+
+    let result = await crdtSet.element(key1)
+    expect(result).toEqual(value1)
+
+    result = await crdtSet.element(key2)
+    expect(result).toEqual(value2)
+
+    const removeDelta = await crdtSet.remove(key1)
+    expect(removeDelta.tombstones).toHaveLength(1)
+    expect(removeDelta.tombstones[0].key).toBe(key1)
+
+    await crdtSet.putTombs(removeDelta.tombstones)
+
+    result = await crdtSet.element(key1)
+    expect(result).toBeNull()
+
+    result = await crdtSet.element(key2)
+    expect(result).toEqual(value2)
+  })
+
+  it('should correctly sync the datastore with existing keys', async () => {
+    const key1 = 'key1'
+    const value1 = new Uint8Array([1, 2, 3])
+
+    await crdtSet.putElems(
+      [{ key: key1, value: value1, id: 'id1' }],
+      'id1',
+      BigInt(1)
+    )
+
+    await expect(crdtSet.datastoreSync(new Key('key1'))).resolves.not.toThrow()
+
+    const result = await crdtSet.element(key1)
+    expect(result).toEqual(value1)
+  })
+
+  describe('cleanKey', () => {
+    it('should correctly clean a key', () => {
+      const tests = [
+        ['', ''],
+        ['/', '/'],
+        ['/a', '/a'],
+        ['/a/b', '/a/b'],
+        ['/a/b/c', '/a/b/c'],
+        ['/a/b/c/', '/a/b/c'],
+        ['//a/b/c/d/e', '/a/b/c/d/e'],
+        ['///a/b/c/d/e', '/a/b/c/d/e'],
+        ['///a/b/c/d/e/', '/a/b/c/d/e'],
+        ['////a/b/c/d/e//', '/a/b/c/d/e'],
+        ['/////a/b/c/d/e//', '/a/b/c/d/e'],
+        ['//a/b/c/d/e//', '/a/b/c/d/e']
+      ]
+
+      for (const [input, expected] of tests) {
+        expect(crdtSet.cleanKey(input)).toBe(expected)
+      }
+    })
+  })
 })
