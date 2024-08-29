@@ -1,17 +1,13 @@
-import * as codec from '@ipld/dag-pb'
 import { prefixLogger } from '@libp2p/logger'
 import { MemoryDatastore } from 'datastore-core/memory'
 import { Key } from 'interface-datastore'
-import * as Block from 'multiformats/block'
 import { CID } from 'multiformats/cid'
-import { sha256 as hasher } from 'multiformats/hashes/sha2'
 import { describe, it, expect, beforeEach } from 'vitest'
 // import debug from 'weald'
 import { CRDTDatastore, type CRDTLibp2pServices } from '../src/crdt'
 import { CRDTNodeGetter } from '../src/ipld'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
 import {
-  cmpValues,
   createNode,
   createReplicas,
   waitForPropagation,
@@ -77,7 +73,7 @@ describe('Datastore', () => {
       await datastore.put(key, value)
       const storedValue = await datastore.get(key)
 
-      expect(cmpValues(storedValue, value)).toBe(true)
+      expect(storedValue).toEqual(value)
     })
 
     it('should delete elements from the set', async () => {
@@ -86,7 +82,7 @@ describe('Datastore', () => {
 
       await datastore.put(key, value)
       let storedValue = await datastore.get(key)
-      expect(cmpValues(storedValue, value)).toBe(true)
+      expect(storedValue).toEqual(value)
 
       await datastore.delete(key)
       storedValue = await datastore.get(key)
@@ -172,7 +168,7 @@ describe('Datastore', () => {
       for (const replica of replicas) {
         await waitUntil(() => replica.get(key) !== null)
         const replicatedValue = await replica.get(key)
-        expect(cmpValues(replicatedValue, value)).toBe(true)
+        expect(replicatedValue).toEqual(value)
       }
 
       // replicas[0].logger('DAG')
@@ -200,7 +196,7 @@ describe('Datastore', () => {
       for (const replica of replicas) {
         await waitUntil(() => replica.get(key) !== null)
         const replicatedValue = await replica.get(key)
-        expect(cmpValues(replicatedValue, value)).toBe(true)
+        expect(replicatedValue).toEqual(value)
       }
     }, 6000)
 

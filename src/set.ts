@@ -1,7 +1,7 @@
 import { BloomFilter } from '@libp2p/utils/filters'
 import { Mutex } from 'async-mutex'
 import { type Batch, type Datastore, Key, type KeyQuery, type Pair, type Query } from 'interface-datastore'
-import { compareUint8Arrays, putUvarint, uvarint } from './utils'
+import { compareUint8Arrays, putUvarint, toUint8Array, uvarint } from './utils'
 import type * as pb from './pb/delta'
 import type { Logger } from '@libp2p/logger'
 
@@ -101,7 +101,7 @@ export class CRDTSet {
     }
   }
 
-  public cleanKey (key: string): string {
+  private cleanKey (key: string): string {
     if (key === '') {
       return ''
     }
@@ -244,9 +244,15 @@ export class CRDTSet {
       if (!inSet) {
         return null
       }
-      return value
-    } catch (error: any) {
-      if (error.name === 'NotFoundError') {
+      return toUint8Array(value)
+    } catch (error: unknown) {
+      const err = error as Error
+      if (
+        (err as any).code === 'ERR_NOT_FOUND' ||
+        err.message.includes('Not Found') || // memory datastore
+        err.message.includes('NotFound') || // level datastore
+        err.message.includes('no such file or directory') // fs datastore
+      ) {
         return null // Key does not exist
       }
       throw error // Re-throw any other errors
@@ -500,7 +506,7 @@ export class CRDTSet {
     try {
       const data = await this.store.get(prioK)
       if (data === null || data === undefined || data.length === 0) {
-        return BigInt(0)
+        return 0n
       }
 
       const [prio, n] = uvarint(data)
@@ -512,17 +518,19 @@ export class CRDTSet {
     } catch (error: unknown) {
       const err = error as Error
       if (
-        (err as any).code === 'ERR_NOT_FOUND' || // Only if error might have a 'code' property
-        err.message.includes('Not Found')
+        (err as any).code === 'ERR_NOT_FOUND' ||
+        err.message.includes('Not Found') || // memory datastore
+        err.message.includes('NotFound') || // level datastore
+        err.message.includes('no such file or directory') // fs datastore
       ) {
         // Return default priority if key is not found
-        return BigInt(0)
+        return 0n
       }
       throw error // Re-throw other errors
     }
   }
 
-  private async setPriority (
+  async setPriority (
     writeStore: Datastore | Batch,
     key: string,
     prio: bigint

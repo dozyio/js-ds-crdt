@@ -9,7 +9,13 @@ import {
   dsKeyToMultihash,
   dsKeyToCidV1,
   bigintToUint8Array,
-  arrayBufferToBigInt
+  arrayBufferToBigInt,
+  uvarint,
+  putUvarint,
+  MaxVarintLen64,
+  MaxVarintLen16,
+  MaxVarintLen32,
+  readUvarint
 } from '../src/utils' // Adjust the import path as necessary
 
 describe('utils.ts', () => {
@@ -161,5 +167,41 @@ describe('arrayBufferToBigInt', () => {
     const bigIntValue = arrayBufferToBigInt(input)
     const uint8Array = bigintToUint8Array(bigIntValue)
     expect(uint8Array).toEqual(new Uint8Array(input))
+  })
+})
+
+describe('varint', () => {
+  // needs more tests
+  function testConstant (w: number, max: number): void {
+    const buf = new Uint8Array(MaxVarintLen64)
+    const n = putUvarint(buf, (1n << BigInt(w)) - 1n)
+    expect(n).toBe(max)
+  }
+
+  it('TestConstants', () => {
+    testConstant(16, MaxVarintLen16)
+    testConstant(32, MaxVarintLen32)
+    testConstant(64, MaxVarintLen64)
+  })
+
+  function testOverflow (buf: Uint8Array): void {
+    const [x, _] = uvarint(buf)
+    expect(x).toBe(0n)
+
+    const reader = new Uint8Array(buf)
+    expect(() => readUvarint(reader)).toThrowError('Overflow')
+  }
+
+  it('TestOverflow', () => {
+    testOverflow(new Uint8Array([0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x2]))
+    testOverflow(new Uint8Array([0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x1, 0, 0]))
+    testOverflow(new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]))
+  })
+
+  it('TestNonCanonicalZero', () => {
+    const buf = new Uint8Array([0x80, 0x80, 0x80, 0])
+    const [x, n] = uvarint(buf)
+    expect(x).toBe(0n)
+    expect(n).toBe(4)
   })
 })
