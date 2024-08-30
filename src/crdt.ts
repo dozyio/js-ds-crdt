@@ -50,7 +50,7 @@ interface Broadcaster {
 export interface Options {
   loggerPrefix: string // ComponentLogger
   rebroadcastInterval: number
-  bloomFilter?: IBloomFilter
+  bloomFilter?: IBloomFilter | null
   putHook?(key: string, value: Uint8Array): void
   deleteHook?(key: string): void
   numWorkers: number
