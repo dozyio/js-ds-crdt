@@ -14,7 +14,7 @@ const prioritySuffix = 'p'
 
 // The Go implementation uses a bloom filter with a size of 30 MiB and 2 hashes.
 // We use a smaller size as a trade-off
-const TombstonesBloomFilterSize = 1024 * 1024 * 8 // 1 MiB
+const TombstonesBloomFilterSize = 1024 * 1024 * 8 // size in buts - 1 MiB
 const TombstonesBloomFilterHashes = 2
 
 export interface IBloomFilter {
@@ -29,13 +29,13 @@ export class CRDTSet {
   private readonly deleteHook?: (key: string) => void
   private readonly logger: Logger
   private readonly putElemsMux: Mutex
-  private readonly tombstonesBloom?: IBloomFilter
+  private readonly tombstonesBloom?: IBloomFilter | null
 
   constructor (
     store: Datastore,
     namespace: Key,
     logger: Logger,
-    tombstonesBloom?: IBloomFilter,
+    tombstonesBloom?: IBloomFilter | null,
     putHook?: (key: string, value: Uint8Array) => void,
     deleteHook?: (key: string) => void
   ) {
@@ -47,6 +47,8 @@ export class CRDTSet {
     this.putElemsMux = new Mutex()
     this.tombstonesBloom = tombstonesBloom
 
+    // if tombstonesBloom is null, we don't want to the filter, if undefined we instatiate with the default values
+
     if (this.tombstonesBloom === undefined) {
       this.tombstonesBloom = new BloomFilter({
         bits: TombstonesBloomFilterSize,
@@ -54,7 +56,7 @@ export class CRDTSet {
       })
     }
 
-    if (this.tombstonesBloom !== undefined) {
+    if (this.tombstonesBloom !== undefined && this.tombstonesBloom !== null) {
       this.primeBloomFilter().catch((err: any) => {
         throw err
       })
@@ -63,7 +65,7 @@ export class CRDTSet {
 
   // Prime the Bloom filter with existing tombstones
   private async primeBloomFilter (): Promise<void> {
-    if (this.tombstonesBloom === undefined) {
+    if (this.tombstonesBloom === undefined || this.tombstonesBloom === null) {
       return
     }
 
@@ -410,7 +412,7 @@ export class CRDTSet {
   // element exists. See Element()/InSet() etc..
 
   private async checkNotTombstoned (key: string): Promise<boolean> {
-    if (this.tombstonesBloom !== undefined) {
+    if (this.tombstonesBloom !== undefined && this.tombstonesBloom !== null) {
       if (!this.tombstonesBloom.has(key)) {
         return true
       }
@@ -613,7 +615,7 @@ export class CRDTSet {
       const k = this.tombsPrefix(elemKey).child(new Key(tomb.id))
       await store.put(k, new Uint8Array())
 
-      if (this.tombstonesBloom !== undefined) {
+      if (this.tombstonesBloom !== undefined && this.tombstonesBloom !== null) {
         this.tombstonesBloom.add(elemKey)
       }
 
