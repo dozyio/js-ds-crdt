@@ -99,6 +99,7 @@ export class CRDTDatastore {
   public readonly heads: Heads
   public readonly dagService: HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
   public readonly broadcaster: Broadcaster
+  private readonly seenHeadsMux: Mutex = new Mutex()
   private readonly seenHeads: Map<CID, boolean>
   private curDelta: dpb.delta.Delta | null = null
   private readonly curDeltaMutex: Mutex = new Mutex()
@@ -256,7 +257,10 @@ export class CRDTDatastore {
           } else {
             await processHead(head)
           }
-          this.seenHeads.set(head, true)
+
+          await this.seenHeadsMux.runExclusive(async () => {
+            this.seenHeads.set(head, true)
+          })
         }
       } catch (err) {
         if (err === ErrNoMoreBroadcast || this.ctx.signal.aborted) {
@@ -461,15 +465,19 @@ export class CRDTDatastore {
     const heads = await this.heads.list()
     const headsToBroadcast: CID[] = []
 
-    for (let i = 0; i < heads.heads.length; i++) {
-      if (!this.seenHeads.has(heads.heads[i])) {
-        headsToBroadcast.push(heads.heads[i])
+    await this.seenHeadsMux.runExclusive(async () => {
+      for (let i = 0; i < heads.heads.length; i++) {
+        if (!this.seenHeads.has(heads.heads[i])) {
+          headsToBroadcast.push(heads.heads[i])
+        }
       }
-    }
+    })
 
     await this.broadcast(headsToBroadcast)
 
-    this.seenHeads.clear()
+    await this.seenHeadsMux.runExclusive(async () => {
+      this.seenHeads.clear()
+    })
   }
 
   private async broadcast (cids: CID[]): Promise<void> {
@@ -575,7 +583,7 @@ export class CRDTDatastore {
           'GetDeltas did not include all children',
           child.toString()
         )
-        this.queuedChildren.remove(child)
+        await this.queuedChildren.remove(child)
       }
     }
   }
@@ -710,7 +718,7 @@ export class CRDTDatastore {
 
     // Remove from the set that has the children which are queued for processing.
     try {
-      this.queuedChildren.remove(node.cid)
+      await this.queuedChildren.remove(node.cid)
     } catch (err: any) {
       this.logger.error(`Error removing from queuedChildren: ${err}`)
       return []
@@ -763,7 +771,7 @@ export class CRDTDatastore {
 
         // If the child has already been processed or someone else has reserved it for processing,
         // then we can make ourselves a head right away because we are not meant to replace an existing head.
-        if (isProcessed || !this.queuedChildren.visit(child)) {
+        if (isProcessed || !await this.queuedChildren.visit(child)) {
           if (!addedAsHead) {
             // eslint-disable-next-line max-depth
             try {
@@ -874,6 +882,83 @@ export class CRDTDatastore {
     }
   }
 
+  public async dotDAG (w: any): Promise<void> {
+    const heads = await this.heads.list()
+
+    // w.write('digraph CRDTDAG {\n')
+    // eslint-disable-next-line no-console
+    console.log('digraph CRDTDAG {\n')
+
+    const ng = new CRDTNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
+
+    const set = new CidSafeSet()
+
+    // w.write('subgraph heads {\n')
+    // eslint-disable-next-line no-console
+    console.log('subgraph heads {\n')
+    for (const h of heads.heads) {
+      // w.write(`${h}\n`)
+      // eslint-disable-next-line no-console
+      console.log(`${h}\n`)
+    }
+    // w.write('}\n')
+    // eslint-disable-next-line no-console
+    console.log('}\n')
+
+    for (const h of heads.heads) {
+      await this.dotDAGRec(w, h, 0, ng, set)
+    }
+    // w.write('}\n')
+    // eslint-disable-next-line no-console
+    console.log('}\n')
+  }
+
+  async dotDAGRec (
+    w: any,
+    from: CID,
+    depth: number,
+    ng: CRDTNodeGetter,
+    set: CidSafeSet
+  ): Promise<void> {
+    const cidLong = from.toString()
+    const cidShort = cidLong.slice(-4)
+
+    await set.add(from)
+
+    const { node, delta } = await ng.getDelta(from)
+
+    // w.write(`${cidLong} [label="${delta.priority} | ${cidShort}: +${delta.elements.length} -${delta.tombstones.length}"]\n`)
+    // eslint-disable-next-line no-console
+    console.log(`${cidLong} [label="${delta.priority} | ${cidShort}: +${delta.elements.length} -${delta.tombstones.length}"]\n`)
+    // w.write(`${cidLong} -> {`)
+    // eslint-disable-next-line no-console
+    console.log(`${cidLong} -> {`)
+    for (const l of node.links()) {
+      // w.write(`${l[1]} `)
+      // eslint-disable-next-line no-console
+      console.log(`${l[1]} `)
+    }
+    // w.write('}\n')
+    // eslint-disable-next-line no-console
+    console.log('}\n')
+
+    // w.write(`subgraph sg_${cidLong} {\n`)
+    // eslint-disable-next-line no-console
+    console.log(`subgraph sg_${cidLong} {\n`)
+    for (const l of node.links()) {
+      // w.write(`${l[1]}\n`)
+      // eslint-disable-next-line no-console
+      console.log(`${l[1]}\n`)
+    }
+    // w.write('}\n')
+    // eslint-disable-next-line no-console
+    console.log('}\n')
+
+    for (const l of node.links()) {
+      await this.dotDAGRec(w, l[1], depth + 1, ng, set)
+    }
+  }
+
   public async internalStats (): Promise<Stats> {
     const heads = await this.heads.list()
     return {
@@ -889,16 +974,19 @@ export class CRDTDatastore {
   }
 
   private async updateDelta (newDelta: dpb.delta.Delta): Promise<number> {
-    return this.curDeltaMutex.runExclusive(() => {
+    let size: number = 0
+
+    await this.curDeltaMutex.runExclusive(() => {
       if (this.curDelta !== null) {
-        this.curDelta = this.mergeDeltas(this.curDelta, newDelta)
-        return dpb.delta.Delta.encode(this.curDelta).length
+        this.curDelta = this.deltaMerge(this.curDelta, newDelta)
+        size = dpb.delta.Delta.encode(this.curDelta).length
       }
-      return 0
     })
+
+    return size
   }
 
-  private mergeDeltas (
+  private deltaMerge (
     d1: dpb.delta.Delta,
     d2: dpb.delta.Delta
   ): dpb.delta.Delta {
@@ -919,16 +1007,21 @@ export class CRDTDatastore {
     key: string,
     newDelta: dpb.delta.Delta
   ): Promise<number> {
-    return this.curDeltaMutex.runExclusive(() => {
+    let size: number = 0
+
+    await this.curDeltaMutex.runExclusive(() => {
       if (this.curDelta !== null) {
         const elements = this.curDelta.elements.filter((e) => e.key !== key)
         this.curDelta.elements = elements
       } else {
         this.curDelta = newDelta
       }
-      this.curDelta = this.mergeDeltas(this.curDelta, newDelta)
-      return dpb.delta.Delta.encode(this.curDelta).length
+
+      this.curDelta = this.deltaMerge(this.curDelta, newDelta)
+      size = dpb.delta.Delta.encode(this.curDelta).length
     })
+
+    return size
   }
 
   public async rmvToDelta (key: string): Promise<number> {
@@ -967,23 +1060,43 @@ class DagJob {
 
 class CidSafeSet {
   private readonly set = new Set<string>()
+  private readonly mux: Mutex = new Mutex()
 
-  public visit (c: CID): boolean {
+  public async visit (c: CID): Promise<boolean> {
     const cidStr = c.toString()
-    if (this.set.has(cidStr)) {
-      return false
-    } else {
-      this.set.add(cidStr)
-      return true
-    }
+    let b: boolean = false
+
+    await this.mux.runExclusive(() => {
+      if (this.set.has(cidStr)) {
+        b = false
+      } else {
+        this.set.add(cidStr)
+        b = true
+      }
+    })
+    return b
   }
 
-  public remove (c: CID): void {
-    this.set.delete(c.toString())
+  public async add (c: CID): Promise<void> {
+    await this.mux.runExclusive(() => {
+      this.set.add(c.toString())
+    })
   }
 
-  public has (c: CID): boolean {
-    return this.set.has(c.toString())
+  public async remove (c: CID): Promise<void> {
+    await this.mux.runExclusive(() => {
+      this.set.delete(c.toString())
+    })
+  }
+
+  public async has (c: CID): Promise<boolean> {
+    let b: boolean = false
+
+    await this.mux.runExclusive(() => {
+      b = this.set.has(c.toString())
+    })
+
+    return b
   }
 }
 
