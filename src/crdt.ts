@@ -665,7 +665,7 @@ export class CRDTDatastore {
     try {
       children = await this.processNode(nd.cid, height, delta, nd)
       if (children.length !== 0) {
-        this.logger('bug: created a block to unknown children')
+        this.logger.error('bug: created a block to unknown children')
       }
     } catch (err: any) {
       this.logger.error(`Error processing node ${nd.cid}: ${err}`)

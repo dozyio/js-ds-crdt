@@ -31,7 +31,7 @@ export class CRDTNodeGetter {
   ): Promise<{ node: BlockView, delta: delta.Delta }> {
     this.logger('getting delta', cid.toString())
     const node = await this.get(cid, options)
-    this.logger('getDelta node', node)
+    this.logger('getDelta node', node.cid.toString(), node.value)
     const delta = this.extractDelta(node)
     return { node, delta }
   }
@@ -89,9 +89,8 @@ export class CRDTNodeGetter {
   ): Promise<BlockView> {
     this.logger('getting node', cid.toString())
     const block = await this.blockstore.get(cid, options)
-    this.logger('block', block)
     const node = await Block.decode({ bytes: block, codec, hasher })
-    this.logger('node', node)
+    this.logger('node', node.cid.toString(), node.value)
 
     return node
   }

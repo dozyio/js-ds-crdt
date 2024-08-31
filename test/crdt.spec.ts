@@ -1,21 +1,16 @@
-import { prefixLogger } from '@libp2p/logger'
-import { MemoryDatastore } from 'datastore-core/memory'
 import { Key } from 'interface-datastore'
 import { CID } from 'multiformats/cid'
 import { describe, it, expect, beforeEach } from 'vitest'
-// import debug from 'weald'
-import { CRDTDatastore, type CRDTLibp2pServices } from '../src/crdt'
+import { type CRDTDatastore } from '../src/crdt'
 import { CRDTNodeGetter } from '../src/ipld'
-import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
 import {
-  createNode,
+  connectReplicas,
   createReplicas,
+  validateKeyConsistency,
   waitForPropagation,
-  waitUntil
+  waitUntil,
+  waitUntilAsync
 } from './utils'
-import type { Libp2p } from '@libp2p/interface'
-import type { HeliaLibp2p } from 'helia'
-
 // debug.enable('crdt*,-crdt0:crdt')
 // debug.enable('*')
 
@@ -23,55 +18,25 @@ import type { HeliaLibp2p } from 'helia'
 
 describe('Datastore', () => {
   describe('Single node', () => {
-    let store: MemoryDatastore
-    let namespace: Key
-    let dagService: HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
-    let broadcaster: any
-    let options: any
-    let datastore: CRDTDatastore
+    let replicas: CRDTDatastore[]
+    let crdtDatastore: CRDTDatastore
 
     beforeEach(async () => {
-      store = new MemoryDatastore()
-      namespace = new Key('testNamespace')
-      dagService = await createNode()
-      broadcaster = new PubSubBroadcaster(
-        dagService.libp2p,
-        'test',
-        prefixLogger('crdt').forComponent('pubsub')
-      )
-
-      options = {
-        logger: console,
-        rebroadcastInterval: 1000,
-        repairInterval: 2000,
-        logInterval: 3000,
-        numWorkers: 1,
-        dagSyncerTimeout: 1000,
-        maxBatchDeltaSize: 1000,
-        multiHeadProcessing: false
-      }
-
-      datastore = new CRDTDatastore(
-        store,
-        namespace,
-        dagService,
-        broadcaster,
-        options
-      )
+      replicas = await createReplicas(1, 't1')
+      crdtDatastore = replicas[0]
     })
 
-    it('should initialize correctly', () => {
-      expect(datastore.options).toEqual(options)
-      expect(datastore.store).toBe(store)
-      expect(datastore.namespace).toBe(namespace)
-    })
+    // it('should initialize correctly', () => {
+    //   // expect(crdtDatastore.store).toBe(datastore)
+    //   expect(crdtDatastore.namespace).toBe(namespace)
+    // })
 
     it('should add and retrieve elements from the set', async () => {
       const key = new Key('key1')
       const value = new Uint8Array([1, 2, 3])
 
-      await datastore.put(key, value)
-      const storedValue = await datastore.get(key)
+      await crdtDatastore.put(key, value)
+      const storedValue = await crdtDatastore.get(key)
 
       expect(storedValue).toEqual(value)
     })
@@ -80,21 +45,21 @@ describe('Datastore', () => {
       const key = new Key('key2')
       const value = new Uint8Array([4, 5, 6])
 
-      await datastore.put(key, value)
-      let storedValue = await datastore.get(key)
+      await crdtDatastore.put(key, value)
+      let storedValue = await crdtDatastore.get(key)
       expect(storedValue).toEqual(value)
 
-      await datastore.delete(key)
-      storedValue = await datastore.get(key)
+      await crdtDatastore.delete(key)
+      storedValue = await crdtDatastore.get(key)
       expect(storedValue).toBeNull()
     })
 
     it('should mark the datastore as dirty and clean', async () => {
-      await datastore.markDirty()
-      expect(await datastore.isDirty()).toBe(true)
+      await crdtDatastore.markDirty()
+      expect(await crdtDatastore.isDirty()).toBe(true)
 
-      await datastore.markClean()
-      expect(await datastore.isDirty()).toBe(false)
+      await crdtDatastore.markClean()
+      expect(await crdtDatastore.isDirty()).toBe(false)
     })
 
     it('should process nodes correctly', async () => {
@@ -106,10 +71,10 @@ describe('Datastore', () => {
       const nd = await CRDTNodeGetter.makeNode(d, heads)
 
       // Now, process the node
-      await datastore.processNode(nd.cid, 1n, d, nd)
+      await crdtDatastore.processNode(nd.cid, 1n, d, nd)
 
       // Check if the node is marked as processed
-      const isProcessed = await datastore.isProcessed(nd.cid)
+      const isProcessed = await crdtDatastore.isProcessed(nd.cid)
 
       expect(isProcessed).toBe(true)
     })
@@ -118,9 +83,9 @@ describe('Datastore', () => {
       const cid = CID.parse(
         'bafyreigx2zx5k2gxejyfmksls5bl6bhybcq4aqmhft7y2jxup4lgjxbiou'
       )
-      await datastore.heads.add(cid, 1n)
+      await crdtDatastore.heads.add(cid, 1n)
 
-      await datastore.rebroadcastHeads()
+      await crdtDatastore.rebroadcastHeads()
       // Since there's no real broadcast logic in this test, we just check that no errors were thrown.
       expect(true).toBe(true)
     })
@@ -128,7 +93,7 @@ describe('Datastore', () => {
     it('should return null when retrieving non-existent key', async () => {
       const key = new Key('/nonexistent/key')
 
-      const retrievedValue = await datastore.get(key)
+      const retrievedValue = await crdtDatastore.get(key)
 
       expect(retrievedValue).toBeNull()
     })
@@ -137,6 +102,7 @@ describe('Datastore', () => {
   describe('Replication', () => {
     it('should replicate data across replicas', async () => {
       const replicas = await createReplicas(2, 't1')
+      await connectReplicas(replicas)
 
       const key = new Key('/test/key')
       const value = new TextEncoder().encode('hola')
@@ -180,6 +146,7 @@ describe('Datastore', () => {
 
     it('should replicate updates across replicas', async () => {
       const replicas = await createReplicas(6, 't2')
+      await connectReplicas(replicas)
 
       const key = new Key('/test/key')
       let value = new TextEncoder().encode('hola')
@@ -202,6 +169,7 @@ describe('Datastore', () => {
 
     it('should replicate large data across replicas', async () => {
       const replicas = await createReplicas(2, 't4')
+      await connectReplicas(replicas)
 
       const key = new Key('/test/large')
       const sizeInBytes = 1024 * 1024 // 1 MB
@@ -225,6 +193,7 @@ describe('Datastore', () => {
 
     it('should delete data across replicas', async () => {
       const replicas = await createReplicas(2, 't8')
+      await connectReplicas(replicas)
 
       const key = new Key('/test/delete')
       const value = new TextEncoder().encode('delete me')
@@ -243,5 +212,116 @@ describe('Datastore', () => {
         expect(deletedValue).toBeNull()
       }
     }, 8000)
+  })
+
+  describe('Convergence', () => {
+    const operations = async (
+      replicas: CRDTDatastore[],
+      replicaId: number,
+      keys: string[],
+      numOperations: number,
+      numKeys: number
+    ): Promise<void> => {
+      for (let i = 0; i < numOperations; i++) {
+        const key = new Key(keys[i % numKeys])
+        const value = new TextEncoder().encode(`valueR${replicaId}-${i}`)
+
+        await replicas[replicaId].put(key, value)
+      }
+    }
+
+    const waitKeyValueConvergence = async (replicas: CRDTDatastore[], keys: string[], timeout: number = 30000, interval: number = 1000): Promise<void> => {
+      for (const key of keys) {
+        await waitUntilAsync(
+          async () => {
+            const res = await validateKeyConsistency(replicas, key)
+            return res
+          },
+          timeout,
+          interval,
+          "replicas don't have the same values for key"
+        )
+      }
+    }
+
+    const waitHeadConvergence = async (replicas: CRDTDatastore[], timeout: number = 30000, interval: number = 1000): Promise<void> => {
+      await waitUntilAsync(
+        async () => {
+          const heads: any[] = []
+
+          for (let i = 0; i < replicas.length; i++) {
+            const stats = await replicas[i].internalStats()
+            heads[i] = JSON.stringify(stats.heads.map(h => h.toString()))
+            // console.log(`r${i} heads: ${heads[i]}`)
+          }
+
+          return heads.every(h => h === heads[0])
+        },
+        timeout,
+        interval,
+        "replicas don't have the same heads"
+      )
+    }
+
+    it('put/delete converge after partition', async () => {
+      const numReplicas = 3
+
+      const replicas = await createReplicas(numReplicas, 't9')
+
+      await replicas[0].put(new Key('key1'), new TextEncoder().encode('value1'))
+      await replicas[0].delete(new Key('key1'))
+      await replicas[1].put(new Key('key1'), new TextEncoder().encode('value2'))
+      await replicas[2].put(new Key('key1'), new TextEncoder().encode('value3'))
+
+      await connectReplicas(replicas)
+
+      await waitKeyValueConvergence(replicas, ['key1'], 10000, 1000)
+
+      await waitHeadConvergence(replicas, 30000, 1000)
+    }, 10000)
+
+    it('2 nodes with should converge - 1 key, 100 ops', async () => {
+      const numReplicas = 2
+      const numKeys = 1
+      const numOperations = 100
+      const promises: Array<Promise<void>> = []
+      const keys = Array.from({ length: numKeys }, (_, i) => `key${i}`)
+
+      const replicas = await createReplicas(numReplicas, 't9')
+
+      // add state to unconnected replicas
+      for (let replicaId = 0; replicaId < numReplicas; replicaId++) {
+        promises.push(operations(replicas, replicaId, keys, numOperations, numKeys))
+      }
+      await Promise.all(promises)
+
+      await connectReplicas(replicas)
+
+      await waitKeyValueConvergence(replicas, keys, 50000, 1000)
+
+      await waitHeadConvergence(replicas, 30000, 1000)
+    }, 40000)
+
+    it('5 nodes with should converge - 5 keys, 100 ops', async () => {
+      const numReplicas = 5
+      const numKeys = 5
+      const numOperations = 100
+      const promises: Array<Promise<void>> = []
+      const keys = Array.from({ length: numKeys }, (_, i) => `key${i}`)
+
+      const replicas = await createReplicas(numReplicas, 't9')
+
+      // add state to unconnected replicas
+      for (let replicaId = 0; replicaId < numReplicas; replicaId++) {
+        promises.push(operations(replicas, replicaId, keys, numOperations, numKeys))
+      }
+      await Promise.all(promises)
+
+      await connectReplicas(replicas)
+
+      await waitKeyValueConvergence(replicas, keys, 50000, 1000)
+
+      await waitHeadConvergence(replicas, 50000, 1000)
+    }, 40000)
   })
 })

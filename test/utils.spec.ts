@@ -185,6 +185,7 @@ describe('varint', () => {
   })
 
   function testOverflow (buf: Uint8Array): void {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [x, _] = uvarint(buf)
     expect(x).toBe(0n)
 

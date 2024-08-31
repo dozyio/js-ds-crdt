@@ -8,18 +8,20 @@ import { tcp } from '@libp2p/tcp'
 import { MemoryBlockstore } from 'blockstore-core'
 import { MemoryDatastore } from 'datastore-core/memory'
 import { createHelia, type HeliaLibp2p } from 'helia'
-import { Key } from 'interface-datastore'
+import { Key, type Datastore } from 'interface-datastore'
 import { createLibp2p } from 'libp2p'
 import { CRDTDatastore, type CRDTLibp2pServices } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub_broadcaster'
 import { msgIdFnStrictNoSign } from '../src/utils'
-import type { Libp2p } from '@libp2p/interface'
+import type { ComponentLogger, Libp2p } from '@libp2p/interface'
 import type { Multiaddr } from '@multiformats/multiaddr'
+import type { Blockstore } from 'interface-blockstore'
 
 export async function waitUntilAsync (
   condition: () => Promise<boolean>,
   timeout = 5000,
-  checkInterval = 10
+  checkInterval = 10,
+  message = 'Condition not met within timeout'
 ): Promise<void> {
   const start = Date.now()
   while (Date.now() - start < timeout) {
@@ -28,7 +30,7 @@ export async function waitUntilAsync (
     }
     await new Promise((resolve) => setTimeout(resolve, checkInterval))
   }
-  throw new Error('Condition not met within timeout')
+  throw new Error(message)
 }
 
 export async function waitUntil (
@@ -45,19 +47,18 @@ export async function waitUntil (
   throw new Error('Condition not met within timeout')
 }
 
-export async function createNode (): Promise<
-HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
-> {
-  const blockstore = new MemoryBlockstore()
-  const datastore = new MemoryDatastore()
-
+export async function createNode (logger: ComponentLogger, datastore: Datastore, blockstore: Blockstore, minConnections = 1): Promise<HeliaLibp2p<Libp2p<CRDTLibp2pServices>>> {
   const libp2p = await createLibp2p({
+    logger,
     addresses: {
       listen: ['/ip4/127.0.0.1/tcp/0']
     },
     transports: [tcp()],
     connectionEncryption: [noise()],
     streamMuxers: [yamux()],
+    connectionManager: {
+      minConnections
+    },
     connectionMonitor: {
       enabled: false
     },
@@ -68,15 +69,17 @@ HeliaLibp2p<Libp2p<CRDTLibp2pServices>>
         allowPublishToZeroTopicPeers: true,
         msgIdFn: msgIdFnStrictNoSign,
         ignoreDuplicatePublishError: true,
-        tagMeshPeers: true
-        // doPX: true
+        tagMeshPeers: true,
+        doPX: true
       })
-    }
+    },
+    contentRouters: []
   })
 
   const blockBrokers = [bitswap()]
 
   const h = await createHelia({
+    logger,
     datastore,
     blockstore,
     libp2p,
@@ -94,9 +97,15 @@ export async function createReplicas (
 ): Promise<CRDTDatastore[]> {
   const replicas: CRDTDatastore[] = []
   for (let i = 0; i < count; i++) {
-    const store = new MemoryDatastore()
+    const datastore = new MemoryDatastore()
+    const blockstore = new MemoryBlockstore()
+    // const blockstore = new ThreadSafeMemoryBlockstore()
+    // const blockstore = new FsBlockstore()
+    // const blockstore = new FsBlockstore(`/tmp/blockstore/${i}`)
+    // await blockstore.open()
+
     const namespace = new Key(`crdt${i}`)
-    const dagService = await createNode()
+    const dagService = await createNode(prefixLogger(`crdt${i}`), datastore, blockstore, count - 1)
     const broadcaster = new PubSubBroadcaster(
       dagService.libp2p,
       topic,
@@ -114,64 +123,109 @@ export async function createReplicas (
       multiHeadProcessing: false
     } as any
 
-    const datastore = new CRDTDatastore(
-      store,
+    const crdtDatastore = new CRDTDatastore(
+      datastore,
       namespace,
       dagService,
       broadcaster,
       options
     )
-    replicas.push(datastore)
-  }
 
-  // connect each replica to each other
-  for (let i = 0; i < count - 1; i++) {
-    for (let j = i + 1; j < count; j++) {
-      const ma = replicas[j].dagService.libp2p.getMultiaddrs()
-      await replicas[i].dagService.libp2p.dial(ma[0])
-    }
+    replicas.push(crdtDatastore)
   }
 
   if (connectTo !== undefined) {
     await replicas[0].dagService.libp2p.dial(connectTo)
   }
 
-  if (count > 1) {
-    for (let i = 0; i < count; i++) {
-      await waitUntil(
-        () => replicas[i].broadcaster.getSubscribers().length > 0,
-        5000
-      )
-      // console.log(`replica ${i} subscribers`, replicas[i].broadcaster.getSubscribers())
-    }
-  }
-
   return replicas
 }
 
+export async function connectReplicas (replicas: CRDTDatastore[]): Promise<void> {
+  for (let i = 0; i < replicas.length - 1; i++) {
+    for (let j = i + 1; j < replicas.length; j++) {
+      const ma = replicas[j].dagService.libp2p.getMultiaddrs()
+      try {
+        await replicas[i].dagService.libp2p.dial(ma[0])
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('dial error', e)
+        throw e
+      }
+    }
+  }
+
+  if (replicas.length > 1) {
+    for (let i = 0; i < replicas.length; i++) {
+      await waitUntil(
+        () => replicas[i].broadcaster.getSubscribers().length === replicas.length - 1,
+        5000
+      )
+      // eslint-disable-next-line no-console
+      // console.log(`replica ${i} subscribers`, replicas[i].broadcaster.getSubscribers())
+    }
+  }
+}
+
 export async function waitForPropagation (
-  delay = 2000,
+  timeout = 2000,
   replica?: CRDTDatastore,
   expectedKey?: Key,
-  expectedValue?: Uint8Array
+  expectedValue?: Uint8Array | null
 ): Promise<void> {
-  if (replica != null && expectedKey != null && expectedValue != null) {
+  if (replica !== undefined && expectedKey !== undefined && expectedValue !== undefined) {
     await waitUntilAsync(
       async () => {
         const res = await replica.get(expectedKey)
-        return (
-          res !== null &&
-          res.length === expectedValue.length &&
-          res.every((value, index) => value === expectedValue[index])
-        )
+        if (expectedValue !== null) {
+          return (
+            res !== null &&
+            res.length === expectedValue.length &&
+            res.every((value, index) => value === expectedValue[index])
+          )
+        } else {
+          return res === expectedValue
+        }
       },
-      delay,
+      timeout,
       100
     )
   } else {
-    // This could be a simple delay or a more sophisticated simulation
-    await new Promise((resolve) => setTimeout(resolve, delay))
+    // just wait for timeout
+    await new Promise((resolve) => setTimeout(resolve, timeout))
   }
+}
+
+export async function validateKeyConsistency (replicas: CRDTDatastore[], key: string, debug = false): Promise<boolean> {
+  const res: Array<Uint8Array | string | null> = []
+
+  for (let i = 0; i < replicas.length; i++) {
+    let decoded: string | null = null
+
+    const raw = await replicas[i].get(new Key(key))
+    if (raw !== null) {
+      decoded = new TextDecoder().decode(raw)
+      res[i] = decoded
+    } else {
+      decoded = null
+      res[i] = null
+    }
+
+    if (debug) {
+      console.log(`r${i} ${key} ${decoded}`)
+    }
+  }
+
+  const match = res.every(v => v === res[0])
+  if (!match && debug) {
+    for (let i = 0; i < replicas.length; i++) {
+      const stats = await replicas[i].internalStats()
+      // eslint-disable-next-line no-console
+      console.log(`NOMATCH r${i} ${key}: ${res[i]} heads: ${stats.heads}, height: ${stats.maxHeight}, queued Jobs: ${stats.queuedJobs}`)
+    }
+  }
+
+  return match
 }
 
 export function cmpValues (a: Uint8Array | null, b: Uint8Array | null): boolean {

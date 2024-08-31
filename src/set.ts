@@ -250,10 +250,15 @@ export class CRDTSet {
     } catch (error: unknown) {
       const err = error as Error
       if (
-        (err as any).code === 'ERR_NOT_FOUND' ||
-        err.message.includes('Not Found') || // memory datastore
-        err.message.includes('NotFound') || // level datastore
-        err.message.includes('no such file or directory') // fs datastore
+        ((err as any).code !== undefined && (err as any).code === 'ERR_NOT_FOUND') ||
+        ((err as any).name !== undefined && (err as any).name === 'NotFoundError') ||
+        ((err as any).code === undefined && (err as any).name === undefined &&
+          !(
+            err.message.includes('Not Found') ||
+            err.message.includes('NotFound') ||
+            err.message.includes('no such file or directory')
+          )
+        )
       ) {
         return null // Key does not exist
       }
