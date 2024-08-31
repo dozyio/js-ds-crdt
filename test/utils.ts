@@ -212,6 +212,7 @@ export async function validateKeyConsistency (replicas: CRDTDatastore[], key: st
     }
 
     if (debug) {
+      // eslint-disable-next-line no-console
       console.log(`r${i} ${key} ${decoded}`)
     }
   }
