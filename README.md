@@ -1,9 +1,11 @@
 # js-ds-crdt
 
-WIP
+A Javascript / Typescript CRDT datastore based on Merkle-DAGs.
 
-Aims to be compatible with [https://github.com/ipfs/go-ds-crdt](https://github.com/ipfs/go-ds-crdt)
+Based on the paper [Merkle-CRDTs: Merkle-DAGs meet CRDTs](https://arxiv.org/abs/2004.00107)
 
-Cross language tests WIP [https://github.com/dozyio/ds-crdt-interop](https://github.com/dozyio/ds-crdt-interop)
+Compatible with [https://github.com/ipfs/go-ds-crdt](https://github.com/ipfs/go-ds-crdt)
 
-Example CLI WIP [https://github.com/dozyio/js-ds-crdt-example](https://github.com/dozyio/js-ds-crdt-example)
+Interop tests [https://github.com/dozyio/ds-crdt-interop](https://github.com/dozyio/ds-crdt-interop)
+
+Example CLI [https://github.com/dozyio/js-ds-crdt-example](https://github.com/dozyio/js-ds-crdt-example)
