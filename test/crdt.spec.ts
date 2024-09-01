@@ -214,6 +214,31 @@ describe('Datastore', () => {
     }, 8000)
   })
 
+  describe('Key History', () => {
+    it('should return the correct key history', async () => {
+      const replicas = await createReplicas(1, 't10')
+      await connectReplicas(replicas)
+
+      const key1 = new Key('/test/key1')
+      await replicas[0].put(key1, new TextEncoder().encode('hola1'))
+
+      // ensure we don't get history for a different key
+      const key2 = new Key('/test/key2')
+      await replicas[0].put(key2, new TextEncoder().encode('adios'))
+
+      await replicas[0].put(key1, new TextEncoder().encode('hola2'))
+      await replicas[0].put(key1, new TextEncoder().encode('hola3'))
+
+      let history = await replicas[0].keyHistory(key1)
+      expect(history).toEqual(['hola3', 'hola2', 'hola1'])
+
+      await replicas[0].delete(key1)
+
+      history = await replicas[0].keyHistory(key1)
+      expect(history).toEqual([null, 'hola3', 'hola2', 'hola1'])
+    })
+  })
+
   describe('Convergence', () => {
     const operations = async (
       replicas: CRDTDatastore[],

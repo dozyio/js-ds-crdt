@@ -3,12 +3,13 @@ import { Mutex } from 'async-mutex'
 import {
   Key,
   type Datastore as DSDatastore,
-  type Batch as DSBatch,
   type Query,
   type Pair
 } from 'interface-datastore'
 import { CID } from 'multiformats/cid'
 // import debug from 'weald'
+import { CidSafeSet } from './cid-safe-set'
+import { DatastoreBatch } from './datastore-batch'
 import { Heads } from './heads'
 import { CRDTNodeGetter } from './ipld'
 import * as bpb from './pb/bcast'
@@ -88,6 +89,18 @@ export function defaultOptions (): Options {
   }
 }
 
+class DagJob {
+  constructor (
+    public session: Mutex,
+    public nodeGetter: CRDTNodeGetter,
+    public root: CID,
+    public rootPrio: bigint,
+    public delta: dpb.delta.Delta,
+    public node: BlockView,
+    public children: CID[]
+  ) { }
+}
+
 export class CRDTDatastore {
   private readonly ctx: AbortController
   public options: Options
@@ -157,7 +170,6 @@ export class CRDTDatastore {
 
   private async scheduleDagWorker (): Promise<void> {
     try {
-      // this.logger('running dagWorker')
       await this.dagWorker()
     } catch (err) {
       this.logger.error('Error in dagWorker:', err)
@@ -170,7 +182,6 @@ export class CRDTDatastore {
 
   private async scheduleSendJobWorker (): Promise<void> {
     try {
-      // this.logger('running sendJobWorker')
       await this.sendJobWorker()
     } catch (err) {
       this.logger.error('Error in sendJobWorker:', err)
@@ -271,12 +282,20 @@ export class CRDTDatastore {
     })
   }
 
-  private async enqueueJob (job: DagJob): Promise<void> {
+  private enqueueJob (job: DagJob): void {
     if (this.ctx.signal.aborted) {
       return
     }
 
     this.jobQueue.push(job)
+  }
+
+  private enqueueSendJob (job: DagJob): void {
+    if (this.ctx.signal.aborted) {
+      return
+    }
+
+    this.sendJobs.push(job)
   }
 
   private async dequeueJob (): Promise<DagJob | null> {
@@ -329,7 +348,7 @@ export class CRDTDatastore {
     if (job === null) return
 
     this.logger('sendJobWorker has job')
-    await this.enqueueJob(job)
+    this.enqueueJob(job)
   }
 
   private async repair (): Promise<void> {
@@ -569,7 +588,7 @@ export class CRDTDatastore {
         deltaOpt.node,
         []
       )
-      this.sendJobs.push(job)
+      this.enqueueSendJob(job)
     }
 
     // This is a safe-guard in case GetDeltas() returns less deltas than
@@ -1044,84 +1063,57 @@ export class CRDTDatastore {
       }
     })
   }
-}
 
-class DagJob {
-  constructor (
-    public session: Mutex,
-    public nodeGetter: CRDTNodeGetter,
-    public root: CID,
-    public rootPrio: bigint,
-    public delta: dpb.delta.Delta,
-    public node: BlockView,
-    public children: CID[]
-  ) { }
-}
+  public async keyHistory (key: Key): Promise<string[]> {
+    this.logger('getting key history for', key.toString())
+    const history: string[] = []
+    const heads = await this.heads.list()
+    const getter = new CRDTNodeGetter(
+      this.dagService.blockstore,
+      this.prefixedLogger.forComponent('ipld')
+    )
+    const visited = new CidSafeSet()
 
-class CidSafeSet {
-  private readonly set = new Set<string>()
-  private readonly mux: Mutex = new Mutex()
+    for (const head of heads.heads) {
+      await this.keyHistoryRec(key, head, getter, visited, history)
+    }
 
-  public async visit (c: CID): Promise<boolean> {
-    const cidStr = c.toString()
-    let b: boolean = false
+    return history
+  }
 
-    await this.mux.runExclusive(() => {
-      if (this.set.has(cidStr)) {
-        b = false
+  private async keyHistoryRec (
+    key: Key,
+    from: CID,
+    getter: CRDTNodeGetter,
+    visited: CidSafeSet,
+    history: Array<string | null>
+  ): Promise<void> {
+    if (await visited.has(from)) {
+      return
+    }
+
+    await visited.add(from)
+
+    const { node, delta } = await getter.getDelta(from)
+
+    // Check if the delta elements contains the key
+    const element = delta.elements.find(e => e.key === key.toString())
+    if (element !== undefined) {
+      if (element.value === null) {
+        history.push(null)
       } else {
-        this.set.add(cidStr)
-        b = true
+        history.push(new TextDecoder().decode(element.value))
       }
-    })
-    return b
-  }
-
-  public async add (c: CID): Promise<void> {
-    await this.mux.runExclusive(() => {
-      this.set.add(c.toString())
-    })
-  }
-
-  public async remove (c: CID): Promise<void> {
-    await this.mux.runExclusive(() => {
-      this.set.delete(c.toString())
-    })
-  }
-
-  public async has (c: CID): Promise<boolean> {
-    let b: boolean = false
-
-    await this.mux.runExclusive(() => {
-      b = this.set.has(c.toString())
-    })
-
-    return b
-  }
-}
-
-class DatastoreBatch implements DSBatch {
-  constructor (private readonly store: CRDTDatastore) { }
-
-  async put (key: Key, value: Uint8Array): Promise<void> {
-    const size = await this.store.addToDelta(key.toString(), value)
-    if (size > this.store.options.maxBatchDeltaSize) {
-      // eslint-disable-next-line no-console
-      console.log('Delta size exceeded max, committing batch')
-      await this.commit()
     }
-  }
 
-  async delete (key: Key): Promise<void> {
-    const size = await this.store.rmvToDelta(key.toString())
-    if (size > this.store.options.maxBatchDeltaSize) {
-      // eslint-disable-next-line no-console
-      console.log('Delta size exceeded max, committing batch')
-      await this.commit()
+    const tombstone = delta.tombstones.find(e => e.key === key.toString())
+    if (tombstone !== undefined) {
+      history.push(null)
     }
-  }
 
-  async commit (): Promise<void> {
-    await this.store.publishDelta()
+    // Recursively visit linked nodes (parents)
+    for (const link of node.links()) {
+      await this.keyHistoryRec(key, link[1], getter, visited, history)
+    }
   }
 }

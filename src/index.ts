@@ -1,7 +1,7 @@
 import { CRDTDatastore, defaultOptions } from './crdt'
 import { Heads } from './heads'
 import { CRDTNodeGetter } from './ipld'
-import { PubSubBroadcaster } from './pubsub_broadcaster'
+import { PubSubBroadcaster } from './pubsub-broadcaster'
 import { CRDTSet } from './set'
 import { ThreadSafeMemoryBlockstore } from './thread-safe-memory-blockstore'
 import { msgIdFnStrictNoSign } from './utils'
