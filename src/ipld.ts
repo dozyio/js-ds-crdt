@@ -121,7 +121,6 @@ export class CRDTNodeGetter {
     }
 
     try {
-      // Attempt to decode the delta; if this fails, an error should be thrown
       const d = delta.Delta.decode(data)
       return d
     } catch (err) {

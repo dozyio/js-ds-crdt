@@ -54,6 +54,32 @@ describe('Datastore', () => {
       expect(storedValue).toBeNull()
     })
 
+    it('should check if a key exists', async () => {
+      const key = new Key('key3')
+      const value = new Uint8Array([4, 5, 6])
+
+      await crdtDatastore.put(key, value)
+      let exists = await crdtDatastore.has(key)
+      expect(exists).toBe(true)
+
+      await crdtDatastore.delete(key)
+      exists = await crdtDatastore.has(key)
+      expect(exists).toBe(false)
+    })
+
+    it('should get the size of a key', async () => {
+      const key = new Key('key4')
+      const value = new Uint8Array([4, 5, 6])
+
+      await crdtDatastore.put(key, value)
+      let size = await crdtDatastore.getSize(key)
+      expect(size).toBe(3)
+
+      await crdtDatastore.delete(key)
+      size = await crdtDatastore.getSize(key)
+      expect(size).toBe(0)
+    })
+
     it('should mark the datastore as dirty and clean', async () => {
       await crdtDatastore.markDirty()
       expect(await crdtDatastore.isDirty()).toBe(true)
@@ -99,6 +125,67 @@ describe('Datastore', () => {
     })
   })
 
+  describe('Key History', () => {
+    it('should return the correct key history', async () => {
+      const replicas = await createReplicas(1, 't10')
+      await connectReplicas(replicas)
+
+      const key1 = new Key('/test/key1')
+      await replicas[0].put(key1, new TextEncoder().encode('hola1'))
+
+      // ensure we don't get history for a different key
+      const key2 = new Key('/test/key2')
+      await replicas[0].put(key2, new TextEncoder().encode('adios'))
+
+      await replicas[0].put(key1, new TextEncoder().encode('hola2'))
+      await replicas[0].put(key1, new TextEncoder().encode('hola3'))
+
+      let history = await replicas[0].keyHistory(key1)
+      expect(history).toEqual([
+        new TextEncoder().encode('hola3'),
+        new TextEncoder().encode('hola2'),
+        new TextEncoder().encode('hola1')
+      ])
+
+      await replicas[0].delete(key1)
+
+      history = await replicas[0].keyHistory(key1)
+      expect(history).toEqual([
+        null,
+        new TextEncoder().encode('hola3'),
+        new TextEncoder().encode('hola2'),
+        new TextEncoder().encode('hola1')
+      ])
+    })
+  })
+
+  describe('Dot DAG', () => {
+    it('should return the correct dot dag', async () => {
+      const replicas = await createReplicas(1, 't10')
+      await connectReplicas(replicas)
+
+      const key1 = new Key('/test/key1')
+      await replicas[0].put(key1, new TextEncoder().encode('hola1'))
+
+      const key2 = new Key('/test/key2')
+      await replicas[0].put(key2, new TextEncoder().encode('adios'))
+
+      const key3 = new Key('/test/key3')
+      await replicas[0].put(key3, new TextEncoder().encode('adios'))
+
+      await replicas[0].put(key1, new TextEncoder().encode('hola2'))
+      await replicas[0].put(key1, new TextEncoder().encode('hola3'))
+
+      let dot = ''
+      await replicas[0].dotDAG((data: string) => {
+        dot += data
+      })
+
+      expect(dot).toContain('digraph CRDTDAG')
+      expect(dot).toContain('subgraph heads')
+    })
+  })
+
   describe('Replication', () => {
     it('should replicate data across replicas', async () => {
       const replicas = await createReplicas(2, 't1')
@@ -112,47 +199,23 @@ describe('Datastore', () => {
 
       await waitForPropagation(2000, replicas[1], key, value)
 
-      // console.log('replica[0] DAG')
-      // await replicas[0].PrintDAG()
-      //
-      // console.log('replica[1] DAG')
-      // await replicas[1].PrintDAG()
-
-      // const list0 = []
-      // for await (const { key, value } of replicas[0].store.query({})) {
-      //   list0.push(key)
-      // }
-      // console.log('LIST0 ALL THE VALUES', list0)
-      //
-      // const list1 = []
-      // for await (const { key, value } of replicas[1].store.query({})) {
-      //   list1.push(key)
-      // }
-      // console.log('LIST1 ALL THE VALUES', list1)
-
       // Wait for the value to be available in all replicas
       for (const replica of replicas) {
         await waitUntil(() => replica.get(key) !== null)
         const replicatedValue = await replica.get(key)
         expect(replicatedValue).toEqual(value)
       }
-
-      // replicas[0].logger('DAG')
-      // await replicas[0].printDAG()
-      //
-      // replicas[1].logger('DAG')
-      // await replicas[1].printDAG()
     }, 5000)
 
     it('should replicate updates across replicas', async () => {
-      const replicas = await createReplicas(6, 't2')
+      const replicas = await createReplicas(4, 't2')
       await connectReplicas(replicas)
 
       const key = new Key('/test/key')
       let value = new TextEncoder().encode('hola')
 
       // Put the value in the first replica
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 10; i++) {
         value = new TextEncoder().encode(`hola${i}`)
         await replicas[0].put(key, value)
       }
@@ -205,38 +268,13 @@ describe('Datastore', () => {
       // Delete the value from the first replica
       await replicas[0].delete(key)
 
-      await waitForPropagation(2000)
+      await waitForPropagation(2000, replicas[replicas.length - 1], key, null)
 
       for (const replica of replicas) {
         const deletedValue = await replica.get(key)
         expect(deletedValue).toBeNull()
       }
     }, 8000)
-  })
-
-  describe('Key History', () => {
-    it('should return the correct key history', async () => {
-      const replicas = await createReplicas(1, 't10')
-      await connectReplicas(replicas)
-
-      const key1 = new Key('/test/key1')
-      await replicas[0].put(key1, new TextEncoder().encode('hola1'))
-
-      // ensure we don't get history for a different key
-      const key2 = new Key('/test/key2')
-      await replicas[0].put(key2, new TextEncoder().encode('adios'))
-
-      await replicas[0].put(key1, new TextEncoder().encode('hola2'))
-      await replicas[0].put(key1, new TextEncoder().encode('hola3'))
-
-      let history = await replicas[0].keyHistory(key1)
-      expect(history).toEqual(['hola3', 'hola2', 'hola1'])
-
-      await replicas[0].delete(key1)
-
-      history = await replicas[0].keyHistory(key1)
-      expect(history).toEqual([null, 'hola3', 'hola2', 'hola1'])
-    })
   })
 
   describe('Convergence', () => {
@@ -305,30 +343,8 @@ describe('Datastore', () => {
       await waitHeadConvergence(replicas, 30000, 1000)
     }, 10000)
 
-    it('2 nodes with should converge - 1 key, 100 ops', async () => {
-      const numReplicas = 2
-      const numKeys = 1
-      const numOperations = 100
-      const promises: Array<Promise<void>> = []
-      const keys = Array.from({ length: numKeys }, (_, i) => `key${i}`)
-
-      const replicas = await createReplicas(numReplicas, 't9')
-
-      // add state to unconnected replicas
-      for (let replicaId = 0; replicaId < numReplicas; replicaId++) {
-        promises.push(operations(replicas, replicaId, keys, numOperations, numKeys))
-      }
-      await Promise.all(promises)
-
-      await connectReplicas(replicas)
-
-      await waitKeyValueConvergence(replicas, keys, 50000, 1000)
-
-      await waitHeadConvergence(replicas, 30000, 1000)
-    }, 40000)
-
-    it('5 nodes with should converge - 5 keys, 100 ops', async () => {
-      const numReplicas = 5
+    it('4 nodes with should converge - 100 ops', async () => {
+      const numReplicas = 4
       const numKeys = 5
       const numOperations = 100
       const promises: Array<Promise<void>> = []

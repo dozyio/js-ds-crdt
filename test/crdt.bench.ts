@@ -10,7 +10,7 @@ describe('Benchmark write', () => {
   bench(
     'write keys to single replica',
     async () => {
-      const key = new Key('/benchmark/writekey')
+      const key = new Key('/benchmark/write')
       await replicas[0].put(key, value)
     },
     {

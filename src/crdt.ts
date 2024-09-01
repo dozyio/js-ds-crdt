@@ -33,7 +33,6 @@ const setNs = 's' // set
 const processedBlocksNs = 'b' // blocks
 const dirtyBitKey = 'd' // dirty
 
-// Common errors.
 const ErrNoMoreBroadcast = new Error(
   'receiving blocks aborted since no new blocks will be broadcasted'
 )
@@ -80,7 +79,7 @@ export function defaultOptions (): Options {
     bloomFilter: undefined,
     putHook: undefined,
     deleteHook: undefined,
-    numWorkers: 1,
+    numWorkers: 5,
     dagSyncerTimeout: 300000, // 5 minutes in milliseconds
     maxBatchDeltaSize: 1048576, // 1MB
     repairInterval: 3600000, // 1 hour in milliseconds
@@ -92,7 +91,6 @@ export function defaultOptions (): Options {
 class DagJob {
   constructor (
     public session: Mutex,
-    public nodeGetter: CRDTNodeGetter,
     public root: CID,
     public rootPrio: bigint,
     public delta: dpb.delta.Delta,
@@ -119,6 +117,7 @@ export class CRDTDatastore {
   private readonly jobQueue: DagJob[]
   private readonly sendJobs: DagJob[]
   private readonly queuedChildren: CidSafeSet
+  private readonly nodeGetter: CRDTNodeGetter
 
   constructor (
     store: DSDatastore,
@@ -139,6 +138,10 @@ export class CRDTDatastore {
     this.jobQueue = []
     this.sendJobs = []
     this.queuedChildren = new CidSafeSet()
+    this.nodeGetter = new CRDTNodeGetter(
+      this.dagService.blockstore,
+      this.prefixedLogger.forComponent('ipld')
+    )
 
     // debug.enable(`${this.options.loggerPrefix}*`) // 'crdt*,*crdt:trace')
     // debug.enable('*,*trace')
@@ -161,7 +164,10 @@ export class CRDTDatastore {
 
     this.handleNext()
 
-    void this.scheduleDagWorker()
+    for (let i = 0; i < this.options.numWorkers; i++) {
+      void this.scheduleDagWorker()
+    }
+
     void this.scheduleSendJobWorker()
     void this.scheduleRebroadcast()
     void this.scheduleRepair()
@@ -249,12 +255,8 @@ export class CRDTDatastore {
         const curHeadCount = await this.heads.len()
         this.logger('curHeadCount', curHeadCount)
         if (curHeadCount === 0) {
-          const dg = new CRDTNodeGetter(
-            this.dagService.blockstore,
-            this.prefixedLogger.forComponent('ipld')
-          )
           for (const head of bCastHeads) {
-            const prio = await dg.getPriority(head)
+            const prio = await this.nodeGetter.getPriority(head)
             this.logger('prio', prio)
             await this.heads.add(head, prio)
           }
@@ -331,7 +333,6 @@ export class CRDTDatastore {
     try {
       await this.sendNewJobs(
         job.session,
-        job.nodeGetter,
         job.root,
         job.rootPrio,
         children
@@ -351,7 +352,7 @@ export class CRDTDatastore {
     this.enqueueJob(job)
   }
 
-  private async repair (): Promise<void> {
+  public async repair (): Promise<void> {
     if (this.options.repairInterval === 0) return
 
     let timer = setTimeout(() => {
@@ -379,11 +380,6 @@ export class CRDTDatastore {
     const start = Date.now()
 
     const heads = await this.heads.list()
-    const getter = new CRDTNodeGetter(
-      this.dagService.blockstore,
-      this.prefixedLogger.forComponent('ipld')
-    )
-
     const nodes: Array<{ head: CID, node: CID }> = []
     const queued = new Set<string>()
 
@@ -403,8 +399,7 @@ export class CRDTDatastore {
       }
 
       const { head, node: cur } = nodeInfo
-      // const { node, delta } = await getter.getDelta(cur)
-      const { node } = await getter.getDelta(cur)
+      const { node } = await this.nodeGetter.getDelta(cur)
 
       const isProcessed = await this.isProcessed(cur)
       if (!isProcessed) {
@@ -526,18 +521,13 @@ export class CRDTDatastore {
 
   public async handleBranch (head: CID, c: CID): Promise<void> {
     this.logger('handling branch', head.toString(), c.toString())
-    const dg = new CRDTNodeGetter(
-      this.dagService.blockstore,
-      this.prefixedLogger.forComponent('ipld')
-    )
     const session = new Mutex()
 
-    await this.sendNewJobs(session, dg, head, 0n, [c])
+    await this.sendNewJobs(session, head, 0n, [c])
   }
 
   private async sendNewJobs (
     session: Mutex,
-    ng: CRDTNodeGetter,
     root: CID,
     rootPrio: bigint,
     children: CID[]
@@ -555,13 +545,13 @@ export class CRDTDatastore {
 
     // Special case for root
     if (rootPrio === 0n) {
-      const prio = await ng.getPriority(children[0])
+      const prio = await this.nodeGetter.getPriority(children[0])
       rootPrio = prio
     }
 
     const goodDeltas = new Set<string>()
 
-    for await (const deltaOpt of ng.getDeltas(children)) {
+    for await (const deltaOpt of this.nodeGetter.getDeltas(children)) {
       if (deltaOpt.err !== null && deltaOpt.err !== undefined) {
         this.logger.error(`Error getting delta: ${deltaOpt.err.message}`)
         throw deltaOpt.err
@@ -581,7 +571,6 @@ export class CRDTDatastore {
 
       const job = new DagJob(
         session,
-        ng,
         root,
         rootPrio,
         deltaOpt.delta,
@@ -638,6 +627,25 @@ export class CRDTDatastore {
     this.logger('getting key', key.toString())
     const result = await this.set.element(key.toString())
     return result
+  }
+
+  public async has (key: Key): Promise<boolean> {
+    this.logger('has key', key.toString())
+    const result = await this.set.inSet(key.toString())
+    return result
+  }
+
+  public async getSize (key: Key): Promise<number> {
+    this.logger('get size ', key.toString())
+    try {
+      const result = await this.set.element(key.toString())
+      if (result === null) {
+        return 0
+      }
+      return result.length
+    } catch (error: unknown) {
+      return -1
+    }
   }
 
   public async put (key: Key, value: Uint8Array): Promise<void> {
@@ -815,11 +823,11 @@ export class CRDTDatastore {
     }
   }
 
-  public async Batch (): Promise<DatastoreBatch> {
+  public async batch (): Promise<DatastoreBatch> {
     return new DatastoreBatch(this)
   }
 
-  public async Sync (prefix: Key): Promise<void> {
+  public async sync (prefix: Key): Promise<void> {
     if (
       'sync' in this.store &&
       typeof this.store.sync === 'function' &&
@@ -843,22 +851,16 @@ export class CRDTDatastore {
 
   public async printDAG (): Promise<void> {
     const heads = await this.heads.list()
-    const getter = new CRDTNodeGetter(
-      this.dagService.blockstore,
-      this.prefixedLogger.forComponent('ipld')
-    )
-
     const set = new Set<string>()
 
     for (const head of heads.heads) {
-      await this.printDAGRec(head, 0n, getter, set)
+      await this.printDAGRec(head, 0n, set)
     }
   }
 
   private async printDAGRec (
     from: CID,
     depth: bigint,
-    getter: CRDTNodeGetter,
     set: Set<string>
   ): Promise<void> {
     let padding = ''
@@ -872,7 +874,7 @@ export class CRDTDatastore {
       return
     }
 
-    const { node, delta } = await getter.getDelta(from)
+    const { node, delta } = await this.nodeGetter.getDelta(from)
     set.add(from.toString())
 
     const shortCID = from.toString().slice(-4)
@@ -897,46 +899,33 @@ export class CRDTDatastore {
     console.log(line)
 
     for (const link of node.links()) {
-      await this.printDAGRec(link[1], depth + 1n, getter, set)
+      await this.printDAGRec(link[1], depth + 1n, set)
     }
   }
 
-  public async dotDAG (w: any): Promise<void> {
+  public async dotDAG (writer: (data: string) => void): Promise<void> {
     const heads = await this.heads.list()
-
-    // w.write('digraph CRDTDAG {\n')
-    // eslint-disable-next-line no-console
-    console.log('digraph CRDTDAG {\n')
-
-    const ng = new CRDTNodeGetter(this.dagService.blockstore, this.prefixedLogger.forComponent('ipld'))
-
     const set = new CidSafeSet()
 
-    // w.write('subgraph heads {\n')
-    // eslint-disable-next-line no-console
-    console.log('subgraph heads {\n')
+    writer('digraph CRDTDAG {\n')
+
+    writer('subgraph heads {\n')
     for (const h of heads.heads) {
-      // w.write(`${h}\n`)
-      // eslint-disable-next-line no-console
-      console.log(`${h}\n`)
+      writer(`${h}\n`)
     }
-    // w.write('}\n')
-    // eslint-disable-next-line no-console
-    console.log('}\n')
+    writer('}\n')
 
     for (const h of heads.heads) {
-      await this.dotDAGRec(w, h, 0, ng, set)
+      await this.dotDAGRec(writer, h, 0, set)
     }
-    // w.write('}\n')
-    // eslint-disable-next-line no-console
-    console.log('}\n')
+
+    writer('}\n')
   }
 
   async dotDAGRec (
-    w: any,
+    writer: (data: string) => void,
     from: CID,
     depth: number,
-    ng: CRDTNodeGetter,
     set: CidSafeSet
   ): Promise<void> {
     const cidLong = from.toString()
@@ -944,37 +933,23 @@ export class CRDTDatastore {
 
     await set.add(from)
 
-    const { node, delta } = await ng.getDelta(from)
+    const { node, delta } = await this.nodeGetter.getDelta(from)
 
-    // w.write(`${cidLong} [label="${delta.priority} | ${cidShort}: +${delta.elements.length} -${delta.tombstones.length}"]\n`)
-    // eslint-disable-next-line no-console
-    console.log(`${cidLong} [label="${delta.priority} | ${cidShort}: +${delta.elements.length} -${delta.tombstones.length}"]\n`)
-    // w.write(`${cidLong} -> {`)
-    // eslint-disable-next-line no-console
-    console.log(`${cidLong} -> {`)
+    writer(`${cidLong} [label="${delta.priority} | ${cidShort}: +${delta.elements.length} -${delta.tombstones.length}"]\n`)
+    writer(`${cidLong} -> {`)
     for (const l of node.links()) {
-      // w.write(`${l[1]} `)
-      // eslint-disable-next-line no-console
-      console.log(`${l[1]} `)
+      writer(`${l[1]} `)
     }
-    // w.write('}\n')
-    // eslint-disable-next-line no-console
-    console.log('}\n')
+    writer('}\n')
 
-    // w.write(`subgraph sg_${cidLong} {\n`)
-    // eslint-disable-next-line no-console
-    console.log(`subgraph sg_${cidLong} {\n`)
+    writer(`subgraph sg_${cidLong} {\n`)
     for (const l of node.links()) {
-      // w.write(`${l[1]}\n`)
-      // eslint-disable-next-line no-console
-      console.log(`${l[1]}\n`)
+      writer(`${l[1]}\n`)
     }
-    // w.write('}\n')
-    // eslint-disable-next-line no-console
-    console.log('}\n')
+    writer('}\n')
 
     for (const l of node.links()) {
-      await this.dotDAGRec(w, l[1], depth + 1, ng, set)
+      await this.dotDAGRec(writer, l[1], depth + 1, set)
     }
   }
 
@@ -1064,18 +1039,14 @@ export class CRDTDatastore {
     })
   }
 
-  public async keyHistory (key: Key): Promise<string[]> {
+  public async keyHistory (key: Key): Promise<Array<Uint8Array | null>> {
     this.logger('getting key history for', key.toString())
-    const history: string[] = []
+    const history: Array<Uint8Array | null> = []
     const heads = await this.heads.list()
-    const getter = new CRDTNodeGetter(
-      this.dagService.blockstore,
-      this.prefixedLogger.forComponent('ipld')
-    )
     const visited = new CidSafeSet()
 
     for (const head of heads.heads) {
-      await this.keyHistoryRec(key, head, getter, visited, history)
+      await this.keyHistoryRec(key, head, visited, history)
     }
 
     return history
@@ -1084,9 +1055,8 @@ export class CRDTDatastore {
   private async keyHistoryRec (
     key: Key,
     from: CID,
-    getter: CRDTNodeGetter,
     visited: CidSafeSet,
-    history: Array<string | null>
+    history: Array<Uint8Array | null>
   ): Promise<void> {
     if (await visited.has(from)) {
       return
@@ -1094,7 +1064,7 @@ export class CRDTDatastore {
 
     await visited.add(from)
 
-    const { node, delta } = await getter.getDelta(from)
+    const { node, delta } = await this.nodeGetter.getDelta(from)
 
     // Check if the delta elements contains the key
     const element = delta.elements.find(e => e.key === key.toString())
@@ -1102,7 +1072,7 @@ export class CRDTDatastore {
       if (element.value === null) {
         history.push(null)
       } else {
-        history.push(new TextDecoder().decode(element.value))
+        history.push(element.value)
       }
     }
 
@@ -1113,7 +1083,7 @@ export class CRDTDatastore {
 
     // Recursively visit linked nodes (parents)
     for (const link of node.links()) {
-      await this.keyHistoryRec(key, link[1], getter, visited, history)
+      await this.keyHistoryRec(key, link[1], visited, history)
     }
   }
 }
