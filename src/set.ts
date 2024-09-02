@@ -13,8 +13,8 @@ const valueSuffix = 'v'
 const prioritySuffix = 'p'
 
 // The Go implementation uses a bloom filter with a size of 30 MiB and 2 hashes.
-// We use a smaller size as a trade-off
-const TombstonesBloomFilterSize = 1024 * 1024 * 8 // size in buts - 1 MiB
+// We use a smaller size as a trade-off against memory
+const TombstonesBloomFilterSize = 30 * 1024 * 1024 * 8 // size in bits - 1 MiB
 const TombstonesBloomFilterHashes = 2
 
 export interface IBloomFilter {

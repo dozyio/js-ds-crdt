@@ -47,6 +47,7 @@
     "@types/node": "^22.4.0",
     "aegir": "^44.1.1",
     "blockstore-core": "^4.0.0",
+    "blockstore-fs": "^1.0.0",
     "datastore-fs": "^10.0.0",
     "datastore-level": "^10.0.0",
     "delay": "^6.0.0",

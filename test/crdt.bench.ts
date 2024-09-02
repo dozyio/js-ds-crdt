@@ -1,46 +1,98 @@
+import { FsBlockstore } from 'blockstore-fs'
+import { LevelDatastore } from 'datastore-level'
 import { Key } from 'interface-datastore'
 import { describe, bench } from 'vitest'
-import { createReplicas, waitUntilAsync } from './utils'
+import { createReplicas } from './utils'
 import type { CRDTDatastore } from '../src/crdt'
 
-describe('Benchmark write', () => {
+describe('Benchmark', () => {
   let replicas: CRDTDatastore[]
   const value = new Uint8Array([1, 2, 3, 4, 5])
+  const key = new Key('/benchmark')
 
   bench(
     'write keys to single replica',
     async () => {
-      const key = new Key('/benchmark/write')
       await replicas[0].put(key, value)
     },
     {
       time: 5000,
       setup: async () => {
-        replicas = await createReplicas(1, 'bench')
+        replicas = await createReplicas(1)
+      }
+    }
+  )
+
+  bench(
+    'read key from single replica, no bloom filter',
+    async () => {
+      await replicas[0].get(key)
+    },
+    {
+      time: 5000,
+      setup: async () => {
+        replicas = await createReplicas(1, { bloomFilter: null })
+        await replicas[0].put(key, value)
+      }
+    }
+  )
+
+  bench(
+    'read key from single replica, default bloom filter',
+    async () => {
+      await replicas[0].get(key)
+    },
+    {
+      time: 5000,
+      setup: async () => {
+        replicas = await createReplicas(1)
+        await replicas[0].put(key, value)
+      }
+    }
+  )
+
+  bench(
+    'has key from single replica, no bloom filter',
+    async () => {
+      await replicas[0].has(key)
+    },
+    {
+      time: 5000,
+      setup: async () => {
+        replicas = await createReplicas(1, { bloomFilter: null })
+        await replicas[0].put(key, value)
       }
     }
   )
 })
 
-describe('Benchmark read/write', () => {
+describe.skip('Benchmark large', () => {
+  let datastore: LevelDatastore
+  let blockstore: FsBlockstore
   let replicas: CRDTDatastore[]
-  const value = new Uint8Array([1, 2, 3, 4, 5])
 
-  bench(
-    'read/write keys to single replica',
+  bench.only(
+    'read key from single replica, large set, default bloom filter',
     async () => {
-      const key = new Key('/benchmark/readwrite')
-      await replicas[0].put(key, value)
-      await waitUntilAsync(
-        async () => (await replicas[0].get(key)) !== null,
-        5000,
-        1
-      )
+      // const keyX = new Key(`/key${Math.floor(Math.random() * (999999 - 0 + 1)) + 0}`)
+      // const keyX = new Key(`key${Math.floor(Math.random() * (999999 - 0 + 1)) + 0}`)
+      const keyX = new Key('key1')
+      await replicas[0].get(keyX)
     },
     {
       time: 5000,
       setup: async () => {
-        replicas = await createReplicas(1, 'bench')
+        datastore = new LevelDatastore('./large-crdt-test/ds')
+        await datastore.open()
+
+        blockstore = new FsBlockstore('./large-crdt-test/bs')
+        await blockstore.open()
+
+        replicas = await createReplicas(1, { bloomFilter: null }, datastore, blockstore)
+      },
+      teardown: async () => {
+        await datastore.close()
+        await blockstore.close()
       }
     }
   )

@@ -3549,6 +3549,20 @@ blockstore-core@^4.0.0, blockstore-core@^4.4.0, blockstore-core@^4.4.1:
     it-pushable "^3.2.3"
     multiformats "^13.0.1"
 
+blockstore-fs@^1.0.0:
+  version "1.1.11"
+  resolved "https://registry.yarnpkg.com/blockstore-fs/-/blockstore-fs-1.1.11.tgz#33791b4f7a0b231d5e463d83c7fa02548357e1a9"
+  integrity sha512-tySmmketfD9CsAeJCdsHTUdy6I2AxLdAlbcOx+KdnA8J7UJ7uKfXxQYNzmx6ZRpXVp/7ccNUWSugwoUstoW83A==
+  dependencies:
+    blockstore-core "^4.0.0"
+    fast-write-atomic "^0.2.1"
+    interface-blockstore "^5.0.0"
+    interface-store "^5.0.0"
+    it-glob "^3.0.1"
+    it-map "^3.0.5"
+    it-parallel-batch "^3.0.4"
+    multiformats "^13.0.1"
+
 bluebird@^3.7.2:
   version "3.7.2"
   resolved "https://registry.yarnpkg.com/bluebird/-/bluebird-3.7.2.tgz#9f229c15be272454ffa973ace0dbee79a1b0c36f"

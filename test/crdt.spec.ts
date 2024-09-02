@@ -22,7 +22,7 @@ describe('Datastore', () => {
     let crdtDatastore: CRDTDatastore
 
     beforeEach(async () => {
-      replicas = await createReplicas(1, 't1')
+      replicas = await createReplicas(1)
       crdtDatastore = replicas[0]
     })
 
@@ -127,7 +127,7 @@ describe('Datastore', () => {
 
   describe('Key History', () => {
     it('should return the correct key history', async () => {
-      const replicas = await createReplicas(1, 't10')
+      const replicas = await createReplicas(1)
       await connectReplicas(replicas)
 
       const key1 = new Key('/test/key1')
@@ -161,7 +161,7 @@ describe('Datastore', () => {
 
   describe('Dot DAG', () => {
     it('should return the correct dot dag', async () => {
-      const replicas = await createReplicas(1, 't10')
+      const replicas = await createReplicas(1)
       await connectReplicas(replicas)
 
       const key1 = new Key('/test/key1')
@@ -188,7 +188,7 @@ describe('Datastore', () => {
 
   describe('Replication', () => {
     it('should replicate data across replicas', async () => {
-      const replicas = await createReplicas(2, 't1')
+      const replicas = await createReplicas(2)
       await connectReplicas(replicas)
 
       const key = new Key('/test/key')
@@ -208,7 +208,7 @@ describe('Datastore', () => {
     }, 5000)
 
     it('should replicate updates across replicas', async () => {
-      const replicas = await createReplicas(4, 't2')
+      const replicas = await createReplicas(4)
       await connectReplicas(replicas)
 
       const key = new Key('/test/key')
@@ -231,7 +231,7 @@ describe('Datastore', () => {
     }, 6000)
 
     it('should replicate large data across replicas', async () => {
-      const replicas = await createReplicas(2, 't4')
+      const replicas = await createReplicas(2)
       await connectReplicas(replicas)
 
       const key = new Key('/test/large')
@@ -255,7 +255,7 @@ describe('Datastore', () => {
     }, 6000)
 
     it('should delete data across replicas', async () => {
-      const replicas = await createReplicas(2, 't8')
+      const replicas = await createReplicas(2)
       await connectReplicas(replicas)
 
       const key = new Key('/test/delete')
@@ -329,7 +329,7 @@ describe('Datastore', () => {
     it('put/delete converge after partition', async () => {
       const numReplicas = 3
 
-      const replicas = await createReplicas(numReplicas, 't9')
+      const replicas = await createReplicas(numReplicas)
 
       await replicas[0].put(new Key('key1'), new TextEncoder().encode('value1'))
       await replicas[0].delete(new Key('key1'))
@@ -350,7 +350,7 @@ describe('Datastore', () => {
       const promises: Array<Promise<void>> = []
       const keys = Array.from({ length: numKeys }, (_, i) => `key${i}`)
 
-      const replicas = await createReplicas(numReplicas, 't9')
+      const replicas = await createReplicas(numReplicas)
 
       // add state to unconnected replicas
       for (let replicaId = 0; replicaId < numReplicas; replicaId++) {

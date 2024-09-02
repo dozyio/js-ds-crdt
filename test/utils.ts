@@ -10,11 +10,10 @@ import { MemoryDatastore } from 'datastore-core/memory'
 import { createHelia, type HeliaLibp2p } from 'helia'
 import { Key, type Datastore } from 'interface-datastore'
 import { createLibp2p } from 'libp2p'
-import { CRDTDatastore, type CRDTLibp2pServices } from '../src/crdt'
+import { CRDTDatastore, defaultOptions, type CRDTLibp2pServices, type Options } from '../src/crdt'
 import { PubSubBroadcaster } from '../src/pubsub-broadcaster'
 import { msgIdFnStrictNoSign } from '../src/utils'
 import type { ComponentLogger, Libp2p } from '@libp2p/interface'
-import type { Multiaddr } from '@multiformats/multiaddr'
 import type { Blockstore } from 'interface-blockstore'
 
 export async function waitUntilAsync (
@@ -66,7 +65,7 @@ export async function createNode (logger: ComponentLogger, datastore: Datastore,
       identify: identify(),
       pubsub: gossipsub({
         emitSelf: false,
-        allowPublishToZeroTopicPeers: true,
+        allowPublishToZeroTopicPeers: false,
         msgIdFn: msgIdFnStrictNoSign,
         ignoreDuplicatePublishError: true,
         tagMeshPeers: true,
@@ -91,51 +90,52 @@ export async function createNode (logger: ComponentLogger, datastore: Datastore,
 }
 
 export async function createReplicas (
-  count: number,
-  topic: string = 'test',
-  connectTo?: Multiaddr
+  count: number = 1,
+  options?: Partial<Options>,
+  datastore?: Datastore,
+  blockstore?: Blockstore
 ): Promise<CRDTDatastore[]> {
   const replicas: CRDTDatastore[] = []
+
+  if (count > 1 && (datastore !== undefined || blockstore !== undefined)) {
+    throw new Error('datastore and blockstore must be undefined when creating more than one replica')
+  }
+
   for (let i = 0; i < count; i++) {
-    const datastore = new MemoryDatastore()
-    const blockstore = new MemoryBlockstore()
-    // const blockstore = new ThreadSafeMemoryBlockstore()
-    // const blockstore = new FsBlockstore()
-    // const blockstore = new FsBlockstore(`/tmp/blockstore/${i}`)
-    // await blockstore.open()
+    if (datastore === undefined) {
+      datastore = new MemoryDatastore()
+    }
+
+    if (blockstore === undefined) {
+      blockstore = new MemoryBlockstore()
+    }
 
     const namespace = new Key(`crdt${i}`)
     const dagService = await createNode(prefixLogger(`crdt${i}`), datastore, blockstore, count - 1)
     const broadcaster = new PubSubBroadcaster(
       dagService.libp2p,
-      topic,
+      'test',
       prefixLogger(`crdt${i}`).forComponent('pubsub')
     )
 
-    const options = {
-      loggerPrefix: `crdt${i}`,
-      rebroadcastInterval: 5000,
-      repairInterval: 60000,
-      logInterval: 1000,
-      numWorkers: 1,
-      dagSyncerTimeout: 2000,
-      maxBatchDeltaSize: 1000,
-      multiHeadProcessing: false
-    } as any
+    let opts
+    if (options !== undefined) {
+      opts = { ...defaultOptions(), ...options }
+    } else {
+      opts = defaultOptions()
+    }
+
+    opts.loggerPrefix = `crdt${i}`
 
     const crdtDatastore = new CRDTDatastore(
       datastore,
       namespace,
       dagService,
       broadcaster,
-      options
+      opts
     )
 
     replicas.push(crdtDatastore)
-  }
-
-  if (connectTo !== undefined) {
-    await replicas[0].dagService.libp2p.dial(connectTo)
   }
 
   return replicas

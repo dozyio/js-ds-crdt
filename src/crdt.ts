@@ -124,10 +124,17 @@ export class CRDTDatastore {
     namespace: Key,
     dagSyncer: HeliaLibp2p<Libp2p<CRDTLibp2pServices>>,
     broadcaster: Broadcaster,
-    options?: Options
+    options?: Partial<Options>
   ) {
+    let opts
+    if (options !== undefined) {
+      opts = { ...defaultOptions(), ...options }
+    } else {
+      opts = defaultOptions()
+    }
+
     this.ctx = new AbortController()
-    this.options = options ?? defaultOptions()
+    this.options = opts
     this.prefixedLogger = prefixLogger(this.options.loggerPrefix)
     this.logger = this.prefixedLogger.forComponent('crdt')
     this.store = store

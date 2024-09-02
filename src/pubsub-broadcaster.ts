@@ -26,9 +26,13 @@ export class PubSubBroadcaster {
 
   // Broadcast publishes some data.
   public async broadcast (data: Uint8Array): Promise<void> {
-    this.logger('broadcasting data', data)
-    const res = await this.libp2p.services.pubsub.publish(this.topic, data)
-    this.logger('pubsub publish res', res)
+    if (this.libp2p.services.pubsub.getPeers().length > 0) {
+      this.logger('broadcasting data', data)
+      const res = await this.libp2p.services.pubsub.publish(this.topic, data)
+      this.logger('pubsub publish res', res)
+    } else {
+      this.logger('skipping broadcast, no peers', data)
+    }
   }
 
   public setHandler (handler: (data: Uint8Array) => void): void {
