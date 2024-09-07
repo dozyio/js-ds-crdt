@@ -40,10 +40,12 @@ export class PubSubBroadcaster {
     this.libp2p.services.pubsub.addEventListener(
       'message',
       (evt: CustomEvent<Message>) => {
-        this.logger('evt', evt)
-        const message = evt.detail
-        const data = message.data // assuming message.data is the Uint8Array
-        handler(data)
+        if (evt.detail.topic === this.topic) {
+          this.logger('evt', evt)
+          const message = evt.detail
+          const data = message.data // assuming message.data is the Uint8Array
+          handler(data)
+        }
       }
     )
 
