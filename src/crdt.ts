@@ -721,17 +721,22 @@ export class CRDTDatastore {
     }
 
     const node = await CRDTNodeGetter.makeNode(delta, heads)
+
     await this.dagService.blockstore.put(node.cid, node.bytes, {
       onProgress: (evt) => {
         this.logger(evt.type, evt.detail)
       }
     })
 
-    await drain(this.dagService.pins.add(node.cid, {
-      onProgress: (evt) => {
-        this.logger(evt.type, evt.detail)
-      }
-    }))
+    try {
+      await drain(this.dagService.pins.add(node.cid, {
+        onProgress: (evt) => {
+          this.logger(evt.type, evt.detail)
+        }
+      }))
+    } catch (err) {
+      this.logger.error(`Error pinning block ${node.cid}: ${err}`)
+    }
 
     try {
       await this.dagService.routing.provide(node.cid, {
