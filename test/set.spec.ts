@@ -3,42 +3,13 @@ import os from 'os'
 import path from 'path'
 import { logger } from '@libp2p/logger'
 import { MemoryDatastore } from 'datastore-core/memory'
-import { FsDatastore } from 'datastore-fs'
-import { LevelDatastore } from 'datastore-level'
+import { type FsDatastore } from 'datastore-fs'
+import { type LevelDatastore } from 'datastore-level'
 import { Key } from 'interface-datastore'
 import { type delta } from '../src/pb/delta'
 import { CRDTSet, type IBloomFilter } from '../src/set'
+import { createDatastore, datastoreTypes } from './helpers'
 import { cmpValues } from './utils'
-
-const datastoreTypes = ['memory', 'level', 'fs'] as const
-
-// Factory function to create datastore instances
-async function createDatastore (type: 'memory' | 'level' | 'fs', dirPath?: string): Promise<MemoryDatastore | LevelDatastore | FsDatastore> {
-  let store: MemoryDatastore | LevelDatastore | FsDatastore
-  switch (type) {
-    case 'memory':
-      store = new MemoryDatastore()
-      break
-    case 'level':
-      store = new LevelDatastore(dirPath ?? path.join(os.tmpdir(), 'level-datastore')) // Adjust path as needed
-      await store.open()
-      break
-    case 'fs':
-      store = new FsDatastore(dirPath ?? path.join(os.tmpdir(), 'fs-datastore')) // Adjust path as needed
-      try {
-        await store.open()
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.log(e)
-        process.exit(1)
-      }
-      break
-    default:
-      throw new Error(`Unknown datastore type: ${type}`)
-  }
-
-  return store
-}
 
 datastoreTypes.forEach((type) => {
   describe(`CRDTSet (${type})`, () => {

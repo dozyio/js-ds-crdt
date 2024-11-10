@@ -6,7 +6,7 @@ import {
   type Query,
   type Pair
 } from 'interface-datastore'
-import drain from 'it-drain'
+// import drain from 'it-drain'
 import { CID } from 'multiformats/cid'
 // import debug from 'weald'
 import { CidSafeSet } from './cid-safe-set'
@@ -512,11 +512,11 @@ export class CRDTDatastore {
   }
 
   private async handleBlock (c: CID): Promise<void> {
-    // this.logger('handling block', c.toString())
+    this.logger('handling block', c.toString())
     try {
       const isProcessed = await this.isProcessed(c)
       if (isProcessed) {
-        // this.logger(`${c} is known. Skip walking tree`)
+        this.logger(`${c} is known. Skip walking tree`)
         return
       }
     } catch (err) {
@@ -606,7 +606,10 @@ export class CRDTDatastore {
 
   public async isProcessed (c: CID): Promise<boolean> {
     const key = this.processedBlockKey(c)
+    // eslint-disable-next-line no-console
+    this.logger('checking isProcessed', key.toString())
     const isProcessed = await this.store.has(key)
+    this.logger('isProcessed', key.toString(), isProcessed)
     return isProcessed
   }
 
@@ -715,7 +718,7 @@ export class CRDTDatastore {
     height: bigint,
     delta: dpb.delta.Delta
   ): Promise<BlockView> {
-    this.logger('putting block', height.toString())
+    this.logger(`putting block with height ${height.toString()}`)
     if (delta != null) {
       delta.priority = height
     }
@@ -724,29 +727,29 @@ export class CRDTDatastore {
 
     await this.dagService.blockstore.put(node.cid, node.bytes, {
       onProgress: (evt) => {
-        this.logger(evt.type, evt.detail)
+        this.logger('blockstore put', evt.type, evt.detail)
       }
     })
 
     try {
-      await drain(this.dagService.pins.add(node.cid, {
-        onProgress: (evt) => {
-          this.logger(evt.type, evt.detail)
-        }
-      }))
-    } catch (err) {
-      this.logger.error(`Error pinning block ${node.cid}: ${err}`)
-    }
-
-    try {
       await this.dagService.routing.provide(node.cid, {
         onProgress: (evt) => {
-          this.logger(evt.type, evt.detail)
+          this.logger('dagService routing provide', evt.type, evt.detail)
         }
       })
     } catch (err) {
       this.logger.error(`Error providing block ${node.cid}: ${err}`)
     }
+
+    // try {
+    //   await drain(this.dagService.pins.add(node.cid, {
+    //     onProgress: (evt) => {
+    //       this.logger('dagService pin', evt.type, evt.detail)
+    //     }
+    //   }))
+    // } catch (err) {
+    //   this.logger.error(`Error pinning block ${node.cid}: ${err}`)
+    // }
 
     return node
   }

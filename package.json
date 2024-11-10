@@ -32,7 +32,7 @@
     "test": "vitest run --hideSkippedTests --allowOnly",
     "test:inspect": "vitest run --inspect --no-file-parallelism --hideSkippedTests --allowOnly",
     "test:debug": "CI=1 DEBUG=*:helia:bitswap*,-vite*,-connect:dispatcher vitest crdt --hideSkippedTests --allowOnly --disable-console-intercept",
-    "test:single": "vitest replicate --hideSkippedTests --allowOnly ",
+    "test:single": "vitest run -t process --hideSkippedTests --allowOnly ",
     "test:bench": "vitest bench --maxConcurrency 1",
     "test:watch": "vitest",
     "clean": "aegir clean",
