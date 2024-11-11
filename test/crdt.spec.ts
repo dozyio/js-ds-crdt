@@ -1,8 +1,13 @@
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { type LevelDatastore } from 'datastore-level'
 import { Key } from 'interface-datastore'
 import { CID } from 'multiformats/cid'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { type CRDTDatastore } from '../src/crdt'
 import { CRDTNodeGetter } from '../src/ipld'
+import { createDatastore, datastoreTypes } from './helpers'
 import {
   connectReplicas,
   createReplicas,
@@ -11,27 +16,37 @@ import {
   waitUntil,
   waitUntilAsync
 } from './utils'
+import type { MemoryDatastore } from 'datastore-core'
+import type { FsDatastore } from 'datastore-fs'
 // debug.enable('crdt*,-crdt0:crdt')
 // debug.enable('*')
 
 // for interop tests - see https://github.com/dozyio/ds-crdt-interop
 
-describe('Datastore', () => {
-  describe('Single node', () => {
+datastoreTypes.forEach((type) => {
+  describe(`Single node (${type})`, () => {
+    let store: MemoryDatastore | LevelDatastore | FsDatastore
+    let tempDir: string
+
     let replicas: CRDTDatastore[]
     let crdtDatastore: CRDTDatastore
-
     beforeEach(async () => {
-      replicas = await createReplicas(1)
+      if (type === 'level' || type === 'fs') {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `test-${type}-`))
+        store = await createDatastore(type, tempDir)
+      } else {
+        store = await createDatastore(type)
+      }
+      replicas = await createReplicas(1, undefined, store)
       crdtDatastore = replicas[0]
+
+      // it('should initialize correctly', () => {
+      //   // expect(crdtDatastore.store).toBe(datastore)
+      //   expect(crdtDatastore.namespace).toBe(namespace)
+      // })
     })
 
-    // it('should initialize correctly', () => {
-    //   // expect(crdtDatastore.store).toBe(datastore)
-    //   expect(crdtDatastore.namespace).toBe(namespace)
-    // })
-
-    it('should add and retrieve elements from the set', async () => {
+    it('should put and get elements from the set', async () => {
       const key = new Key('key1')
       const value = new Uint8Array([1, 2, 3])
 
@@ -124,7 +139,9 @@ describe('Datastore', () => {
       expect(retrievedValue).toBeNull()
     })
   })
+})
 
+describe('Datastore', () => {
   describe('Key History', () => {
     it('should return the correct key history', async () => {
       const replicas = await createReplicas(1)
@@ -343,7 +360,7 @@ describe('Datastore', () => {
       await waitHeadConvergence(replicas, 30000, 1000)
     }, 10000)
 
-    it('4 nodes with should converge - 100 ops', async () => {
+    it('4 nodes should converge - 100 ops', async () => {
       const numReplicas = 4
       const numKeys = 5
       const numOperations = 100

@@ -6,7 +6,7 @@ import {
   type Query,
   type Pair
 } from 'interface-datastore'
-import drain from 'it-drain'
+// import drain from 'it-drain'
 import { CID } from 'multiformats/cid'
 // import debug from 'weald'
 import { CidSafeSet } from './cid-safe-set'
@@ -15,7 +15,7 @@ import { Heads } from './heads'
 import { CRDTNodeGetter } from './ipld'
 import * as bpb from './pb/bcast'
 import * as dpb from './pb/delta'
-import { CRDTSet, type IBloomFilter } from './set'
+import { CRDTSet } from './set'
 import { multihashToDsKey } from './utils'
 import type { Identify } from '@libp2p/identify'
 import type {
@@ -51,7 +51,6 @@ interface Broadcaster {
 export interface Options {
   loggerPrefix: string // ComponentLogger
   rebroadcastInterval: number
-  bloomFilter?: IBloomFilter | null
   putHook?(key: string, value: Uint8Array): void
   deleteHook?(key: string): void
   numWorkers: number
@@ -77,7 +76,6 @@ export function defaultOptions (): Options {
   return {
     loggerPrefix: 'crdt',
     rebroadcastInterval: 5000, // 5 seconds in milliseconds
-    bloomFilter: undefined,
     putHook: undefined,
     deleteHook: undefined,
     numWorkers: 5,
@@ -158,8 +156,8 @@ export class CRDTDatastore {
     this.set = new CRDTSet(
       store,
       namespace.child(new Key(setNs)),
+      this.nodeGetter,
       this.prefixedLogger.forComponent('set'),
-      this.options.bloomFilter,
       this.options.putHook,
       this.options.deleteHook
     )
@@ -169,6 +167,8 @@ export class CRDTDatastore {
       namespace.child(new Key(headsNs)),
       this.prefixedLogger.forComponent('heads')
     )
+
+    // console.log('TODO migrations')
 
     this.handleNext()
 
@@ -512,11 +512,11 @@ export class CRDTDatastore {
   }
 
   private async handleBlock (c: CID): Promise<void> {
-    // this.logger('handling block', c.toString())
+    this.logger('handling block', c.toString())
     try {
       const isProcessed = await this.isProcessed(c)
       if (isProcessed) {
-        // this.logger(`${c} is known. Skip walking tree`)
+        this.logger(`${c} is known. Skip walking tree`)
         return
       }
     } catch (err) {
@@ -606,7 +606,10 @@ export class CRDTDatastore {
 
   public async isProcessed (c: CID): Promise<boolean> {
     const key = this.processedBlockKey(c)
+    // eslint-disable-next-line no-console
+    this.logger('checking isProcessed', key.toString())
     const isProcessed = await this.store.has(key)
+    this.logger('isProcessed', key.toString(), isProcessed)
     return isProcessed
   }
 
@@ -633,14 +636,12 @@ export class CRDTDatastore {
 
   public async get (key: Key): Promise<Uint8Array | null> {
     this.logger('getting key', key.toString())
-    const result = await this.set.element(key.toString())
-    return result
+    return this.set.element(key.toString())
   }
 
   public async has (key: Key): Promise<boolean> {
     this.logger('has key', key.toString())
-    const result = await this.set.inSet(key.toString())
-    return result
+    return this.set.inSet(key.toString())
   }
 
   public async getSize (key: Key): Promise<number> {
@@ -715,7 +716,7 @@ export class CRDTDatastore {
     height: bigint,
     delta: dpb.delta.Delta
   ): Promise<BlockView> {
-    this.logger('putting block', height.toString())
+    this.logger(`putting block with height ${height.toString()}`)
     if (delta != null) {
       delta.priority = height
     }
@@ -724,29 +725,29 @@ export class CRDTDatastore {
 
     await this.dagService.blockstore.put(node.cid, node.bytes, {
       onProgress: (evt) => {
-        this.logger(evt.type, evt.detail)
+        this.logger('blockstore put', evt.type, evt.detail)
       }
     })
 
     try {
-      await drain(this.dagService.pins.add(node.cid, {
-        onProgress: (evt) => {
-          this.logger(evt.type, evt.detail)
-        }
-      }))
-    } catch (err) {
-      this.logger.error(`Error pinning block ${node.cid}: ${err}`)
-    }
-
-    try {
       await this.dagService.routing.provide(node.cid, {
         onProgress: (evt) => {
-          this.logger(evt.type, evt.detail)
+          this.logger('dagService routing provide', evt.type, evt.detail)
         }
       })
     } catch (err) {
       this.logger.error(`Error providing block ${node.cid}: ${err}`)
     }
+
+    // try {
+    //   await drain(this.dagService.pins.add(node.cid, {
+    //     onProgress: (evt) => {
+    //       this.logger('dagService pin', evt.type, evt.detail)
+    //     }
+    //   }))
+    // } catch (err) {
+    //   this.logger.error(`Error pinning block ${node.cid}: ${err}`)
+    // }
 
     return node
   }
@@ -927,7 +928,15 @@ export class CRDTDatastore {
       line += `${link[1].toString().slice(-4)},`
     }
 
-    line += '}:'
+    line += '}'
+
+    const processed = await this.isProcessed(node.cid)
+    if (!processed) {
+      line += ' Unprocessed!'
+    }
+
+    line += ':'
+
     // eslint-disable-next-line no-console
     console.log(line)
 

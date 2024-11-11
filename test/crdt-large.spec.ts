@@ -17,7 +17,7 @@ describe.skip('Large CRDT', () => {
       const blockstore = new FsBlockstore('./large-crdt-test/bs')
       await blockstore.open()
 
-      replicas = await createReplicas(1, { bloomFilter: null }, datastore, blockstore)
+      replicas = await createReplicas(1, {}, datastore, blockstore)
       crdtDatastore = replicas[0]
     })
 
