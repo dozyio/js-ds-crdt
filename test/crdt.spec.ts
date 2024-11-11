@@ -46,7 +46,7 @@ datastoreTypes.forEach((type) => {
       // })
     })
 
-    it('should add and retrieve elements from the set', async () => {
+    it('should put and get elements from the set', async () => {
       const key = new Key('key1')
       const value = new Uint8Array([1, 2, 3])
 
@@ -360,7 +360,7 @@ describe('Datastore', () => {
       await waitHeadConvergence(replicas, 30000, 1000)
     }, 10000)
 
-    it('4 nodes with should converge - 100 ops', async () => {
+    it('4 nodes should converge - 100 ops', async () => {
       const numReplicas = 4
       const numKeys = 5
       const numOperations = 100

@@ -15,7 +15,7 @@ import { Heads } from './heads'
 import { CRDTNodeGetter } from './ipld'
 import * as bpb from './pb/bcast'
 import * as dpb from './pb/delta'
-import { CRDTSet, type IBloomFilter } from './set'
+import { CRDTSet } from './set'
 import { multihashToDsKey } from './utils'
 import type { Identify } from '@libp2p/identify'
 import type {
@@ -51,7 +51,6 @@ interface Broadcaster {
 export interface Options {
   loggerPrefix: string // ComponentLogger
   rebroadcastInterval: number
-  bloomFilter?: IBloomFilter | null
   putHook?(key: string, value: Uint8Array): void
   deleteHook?(key: string): void
   numWorkers: number
@@ -77,7 +76,6 @@ export function defaultOptions (): Options {
   return {
     loggerPrefix: 'crdt',
     rebroadcastInterval: 5000, // 5 seconds in milliseconds
-    bloomFilter: undefined,
     putHook: undefined,
     deleteHook: undefined,
     numWorkers: 5,
@@ -158,8 +156,8 @@ export class CRDTDatastore {
     this.set = new CRDTSet(
       store,
       namespace.child(new Key(setNs)),
+      this.nodeGetter,
       this.prefixedLogger.forComponent('set'),
-      this.options.bloomFilter,
       this.options.putHook,
       this.options.deleteHook
     )
@@ -169,6 +167,8 @@ export class CRDTDatastore {
       namespace.child(new Key(headsNs)),
       this.prefixedLogger.forComponent('heads')
     )
+
+    // console.log('TODO migrations')
 
     this.handleNext()
 
@@ -636,14 +636,12 @@ export class CRDTDatastore {
 
   public async get (key: Key): Promise<Uint8Array | null> {
     this.logger('getting key', key.toString())
-    const result = await this.set.element(key.toString())
-    return result
+    return this.set.element(key.toString())
   }
 
   public async has (key: Key): Promise<boolean> {
     this.logger('has key', key.toString())
-    const result = await this.set.inSet(key.toString())
-    return result
+    return this.set.inSet(key.toString())
   }
 
   public async getSize (key: Key): Promise<number> {
@@ -930,7 +928,15 @@ export class CRDTDatastore {
       line += `${link[1].toString().slice(-4)},`
     }
 
-    line += '}:'
+    line += '}'
+
+    const processed = await this.isProcessed(node.cid)
+    if (!processed) {
+      line += ' Unprocessed!'
+    }
+
+    line += ':'
+
     // eslint-disable-next-line no-console
     console.log(line)
 

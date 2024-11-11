@@ -1,13 +1,15 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { logger } from '@libp2p/logger'
+import { logger, prefixLogger } from '@libp2p/logger'
+import { MemoryBlockstore } from 'blockstore-core'
 import { MemoryDatastore } from 'datastore-core/memory'
 import { type FsDatastore } from 'datastore-fs'
 import { type LevelDatastore } from 'datastore-level'
 import { Key } from 'interface-datastore'
+import { CRDTNodeGetter } from '../src/ipld'
 import { type delta } from '../src/pb/delta'
-import { CRDTSet, type IBloomFilter } from '../src/set'
+import { CRDTSet } from '../src/set'
 import { createDatastore, datastoreTypes } from './helpers'
 import { cmpValues } from './utils'
 
@@ -16,9 +18,9 @@ datastoreTypes.forEach((type) => {
     let store: MemoryDatastore | LevelDatastore | FsDatastore
     let namespace: Key
     let crdtSet: CRDTSet
+    let nodeGetter: CRDTNodeGetter
     let putHookMock: ReturnType<typeof vi.fn>
     let deleteHookMock: ReturnType<typeof vi.fn>
-    let bloomFilter: IBloomFilter | undefined
     let log: ReturnType<typeof logger>
     let tempDir: string
 
@@ -31,15 +33,18 @@ datastoreTypes.forEach((type) => {
       }
 
       namespace = new Key('/namespace')
-      bloomFilter = undefined
+      nodeGetter = new CRDTNodeGetter(
+        new MemoryBlockstore(),
+        prefixLogger('set').forComponent('set')
+      )
       putHookMock = vi.fn()
       deleteHookMock = vi.fn()
       log = logger('test')
       crdtSet = new CRDTSet(
         store,
         namespace,
+        nodeGetter,
         log,
-        bloomFilter,
         putHookMock,
         deleteHookMock
       )
@@ -60,7 +65,7 @@ datastoreTypes.forEach((type) => {
       expect(delta.elements[0].key).toBe(key)
       expect(delta.elements[0].value).toBe(value)
 
-      await crdtSet.putElems(delta.elements, 'id1', BigInt(1))
+      await crdtSet.putElems(delta.elements, 'id1', 1n)
 
       const result = await crdtSet.element(key)
       expect(result).toEqual(value)
@@ -72,7 +77,7 @@ datastoreTypes.forEach((type) => {
       const value = new Uint8Array([1, 2, 3])
 
       const delta = crdtSet.add(key, value)
-      await crdtSet.putElems(delta.elements, 'id1', BigInt(1))
+      await crdtSet.putElems(delta.elements, 'id1', 1n)
 
       const removeDelta = await crdtSet.remove(key)
       expect(removeDelta.tombstones).toHaveLength(1)
@@ -95,13 +100,13 @@ datastoreTypes.forEach((type) => {
       const delta1: delta.Delta = {
         elements: [{ key: key1, value: value1, id: 'id1' }],
         tombstones: [],
-        priority: BigInt(1)
+        priority: 1n
       }
 
       const delta2: delta.Delta = {
         elements: [{ key: key2, value: value2, id: 'id2' }],
         tombstones: [],
-        priority: BigInt(2)
+        priority: 2n
       }
 
       await crdtSet.merge(delta1, 'id1')
@@ -119,7 +124,7 @@ datastoreTypes.forEach((type) => {
       const value = new Uint8Array([1, 2, 3])
 
       const delta = crdtSet.add(key, value)
-      await crdtSet.putElems(delta.elements, 'id1', BigInt(1))
+      await crdtSet.putElems(delta.elements, 'id1', 1n)
 
       const inSet = await crdtSet.inSet(key)
       expect(inSet).toBe(true)
@@ -154,14 +159,14 @@ datastoreTypes.forEach((type) => {
       await crdtSet.putElems(
         [{ key, value: lowValue, id: 'id1' }],
         'id1',
-        BigInt(1)
+        1n
       )
 
       // Now, add an element with a higher priority
       await crdtSet.putElems(
         [{ key, value: highValue, id: 'id2' }],
         'id2',
-        BigInt(2)
+        2n
       )
 
       // The set should keep the value with the higher priority
@@ -178,12 +183,12 @@ datastoreTypes.forEach((type) => {
       await crdtSet.putElems(
         [{ key, value: value1, id: 'idA' }],
         'idA',
-        BigInt(1)
+        1n
       )
       await crdtSet.putElems(
         [{ key, value: value2, id: 'idB' }],
         'idB',
-        BigInt(1)
+        1n
       )
 
       // The element with the lexicographically higher ID should be stored
@@ -203,7 +208,7 @@ datastoreTypes.forEach((type) => {
       const delta1: delta.Delta = {
         elements: [{ key: key1, value: value1, id: 'id1' }],
         tombstones: [],
-        priority: BigInt(1)
+        priority: 1n
       }
 
       // Merge the first delta to add an element
@@ -223,14 +228,14 @@ datastoreTypes.forEach((type) => {
       const emptyDelta: delta.Delta = {
         elements: [],
         tombstones: [],
-        priority: BigInt(0)
+        priority: 0n
       }
 
       const key = 'key1'
       const value = new Uint8Array([1, 2, 3])
 
       // Add an element first
-      await crdtSet.putElems([{ key, value, id: 'id1' }], 'id1', BigInt(1))
+      await crdtSet.putElems([{ key, value, id: 'id1' }], 'id1', 1n)
 
       // Merge an empty delta
       await crdtSet.merge(emptyDelta, 'id2')
@@ -248,12 +253,12 @@ datastoreTypes.forEach((type) => {
       const put1 = crdtSet.putElems(
         [{ key, value: value1, id: 'id1' }],
         'id1',
-        BigInt(1)
+        1n
       )
       const put2 = crdtSet.putElems(
         [{ key, value: value2, id: 'id2' }],
         'id2',
-        BigInt(2)
+        2n
       )
 
       await Promise.all([put1, put2])
@@ -269,7 +274,7 @@ datastoreTypes.forEach((type) => {
       await crdtSet.putElems(
         [{ key: key1, value: value1, id: 'id1' }],
         'id1',
-        BigInt(1)
+        1n
       )
 
       await expect(crdtSet.datastoreSync(new Key('key1'))).resolves.not.toThrow()
@@ -288,12 +293,12 @@ datastoreTypes.forEach((type) => {
       const put1 = crdtSet.putElems(
         [{ key: key1, value: value1, id: 'id1' }],
         'id1',
-        BigInt(1)
+        1n
       )
       const put2 = crdtSet.putElems(
         [{ key: key2, value: value2, id: 'id2' }],
         'id2',
-        BigInt(2)
+        2n
       )
 
       await Promise.all([put1, put2])
@@ -327,12 +332,12 @@ datastoreTypes.forEach((type) => {
       const put1 = crdtSet.putElems(
         [{ key: key1, value: value1, id: 'id1' }],
         'id1',
-        BigInt(1)
+        1n
       )
       const put2 = crdtSet.putElems(
         [{ key: key2, value: value2, id: 'id2' }],
         'id2',
-        BigInt(2)
+        2n
       )
 
       await Promise.all([put1, put2])
@@ -366,12 +371,12 @@ datastoreTypes.forEach((type) => {
       const put1 = crdtSet.putElems(
         [{ key: key1, value: value1, id: 'id1' }],
         'id1',
-        BigInt(1)
+        1n
       )
       const put2 = crdtSet.putElems(
         [{ key: key2, value: value2, id: 'id2' }],
         'id2',
-        BigInt(2)
+        2n
       )
 
       await Promise.all([put1, put2])
@@ -402,7 +407,7 @@ datastoreTypes.forEach((type) => {
       await crdtSet.putElems(
         [{ key: key1, value: value1, id: 'id1' }],
         'id1',
-        BigInt(1)
+        1n
       )
 
       await expect(crdtSet.datastoreSync(new Key('key1'))).resolves.not.toThrow()
@@ -438,30 +443,33 @@ describe('CRDTSet key cleaning', () => {
   let store: MemoryDatastore | LevelDatastore | FsDatastore
   let namespace: Key
   let crdtSet: CRDTSet
+  let nodeGetter: CRDTNodeGetter
   let putHookMock: ReturnType<typeof vi.fn>
   let deleteHookMock: ReturnType<typeof vi.fn>
-  let bloomFilter: IBloomFilter | undefined
   let log: ReturnType<typeof logger>
 
   beforeEach(async () => {
     store = new MemoryDatastore()
     namespace = new Key('/namespace')
-    bloomFilter = undefined
+    nodeGetter = new CRDTNodeGetter(
+      new MemoryBlockstore(),
+      prefixLogger('set').forComponent('set')
+    )
     putHookMock = vi.fn()
     deleteHookMock = vi.fn()
     log = logger('test')
     crdtSet = new CRDTSet(
       store,
       namespace,
+      nodeGetter,
       log,
-      bloomFilter,
       putHookMock,
       deleteHookMock
     )
   })
   it('cleanKey should correctly clean a key', () => {
     const tests = [
-      ['', ''],
+      ['', '/'],
       ['/', '/'],
       ['/a', '/a'],
       ['/a/b', '/a/b'],

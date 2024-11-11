@@ -24,21 +24,7 @@ describe('Benchmark', () => {
   )
 
   bench(
-    'read key from single replica, no bloom filter',
-    async () => {
-      await replicas[0].get(key)
-    },
-    {
-      time: 5000,
-      setup: async () => {
-        replicas = await createReplicas(1, { bloomFilter: null })
-        await replicas[0].put(key, value)
-      }
-    }
-  )
-
-  bench(
-    'read key from single replica, default bloom filter',
+    'read key from single replica',
     async () => {
       await replicas[0].get(key)
     },
@@ -52,14 +38,14 @@ describe('Benchmark', () => {
   )
 
   bench(
-    'has key from single replica, no bloom filter',
+    'has key from single replica',
     async () => {
       await replicas[0].has(key)
     },
     {
       time: 5000,
       setup: async () => {
-        replicas = await createReplicas(1, { bloomFilter: null })
+        replicas = await createReplicas(1)
         await replicas[0].put(key, value)
       }
     }
@@ -72,7 +58,7 @@ describe.skip('Benchmark large', () => {
   let replicas: CRDTDatastore[]
 
   bench.only(
-    'read key from single replica, large set, default bloom filter',
+    'read key from single replica, large set',
     async () => {
       // const keyX = new Key(`/key${Math.floor(Math.random() * (999999 - 0 + 1)) + 0}`)
       // const keyX = new Key(`key${Math.floor(Math.random() * (999999 - 0 + 1)) + 0}`)
@@ -88,7 +74,7 @@ describe.skip('Benchmark large', () => {
         blockstore = new FsBlockstore('./large-crdt-test/bs')
         await blockstore.open()
 
-        replicas = await createReplicas(1, { bloomFilter: null }, datastore, blockstore)
+        replicas = await createReplicas(1, {}, datastore, blockstore)
       },
       teardown: async () => {
         await datastore.close()
