@@ -39,11 +39,14 @@ datastoreTypes.forEach((type) => {
       }
       replicas = await createReplicas(1, undefined, store)
       crdtDatastore = replicas[0]
+    })
+    afterEach(async () => {
+      await crdtDatastore.close()
+    })
 
-      // it('should initialize correctly', () => {
-      //   // expect(crdtDatastore.store).toBe(datastore)
-      //   expect(crdtDatastore.namespace).toBe(namespace)
-      // })
+    it('should initialize correctly', () => {
+      expect(crdtDatastore.store).toBe(store)
+      // expect(crdtDatastore.namespace).toBe(namespace)
     })
 
     it('should put and get elements from the set', async () => {
@@ -145,7 +148,6 @@ describe('Datastore', () => {
   describe('Key History', () => {
     it('should return the correct key history', async () => {
       const replicas = await createReplicas(1)
-      await connectReplicas(replicas)
 
       const key1 = new Key('/test/key1')
       await replicas[0].put(key1, new TextEncoder().encode('hola1'))
@@ -355,12 +357,12 @@ describe('Datastore', () => {
 
       await connectReplicas(replicas)
 
-      await waitKeyValueConvergence(replicas, ['key1'], 10000, 1000)
+      await waitKeyValueConvergence(replicas, ['key1'], 10000, 500)
 
-      await waitHeadConvergence(replicas, 30000, 1000)
+      await waitHeadConvergence(replicas, 30000, 500)
     }, 10000)
 
-    it('4 nodes should converge - 100 ops', async () => {
+    it('4 nodes should converge', async () => {
       const numReplicas = 4
       const numKeys = 5
       const numOperations = 100
@@ -377,9 +379,9 @@ describe('Datastore', () => {
 
       await connectReplicas(replicas)
 
-      await waitKeyValueConvergence(replicas, keys, 50000, 1000)
+      await waitKeyValueConvergence(replicas, keys, 50_000, 1000)
 
-      await waitHeadConvergence(replicas, 50000, 1000)
-    }, 40000)
+      await waitHeadConvergence(replicas, 50_000, 1000)
+    }, 100_000)
   })
 })

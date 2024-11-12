@@ -52,12 +52,12 @@ describe('Benchmark', () => {
   )
 })
 
-describe.skip('Benchmark large', () => {
+describe('Benchmark large', () => {
   let datastore: LevelDatastore
   let blockstore: FsBlockstore
   let replicas: CRDTDatastore[]
 
-  bench.only(
+  bench.skip(
     'read key from single replica, large set',
     async () => {
       // const keyX = new Key(`/key${Math.floor(Math.random() * (999999 - 0 + 1)) + 0}`)

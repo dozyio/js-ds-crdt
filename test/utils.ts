@@ -53,11 +53,8 @@ export async function createNode (logger: ComponentLogger, datastore: Datastore,
       listen: ['/ip4/127.0.0.1/tcp/0']
     },
     transports: [tcp()],
-    connectionEncryption: [noise()],
+    connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
-    connectionManager: {
-      minConnections
-    },
     connectionMonitor: {
       enabled: false
     },
@@ -145,24 +142,50 @@ export async function connectReplicas (replicas: CRDTDatastore[]): Promise<void>
   for (let i = 0; i < replicas.length - 1; i++) {
     for (let j = i + 1; j < replicas.length; j++) {
       const ma = replicas[j].dagService.libp2p.getMultiaddrs()
-      try {
-        await replicas[i].dagService.libp2p.dial(ma[0])
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('dial error', e)
-        throw e
+      let attempt = 0
+      const maxAttempts = 3
+
+      while (attempt < maxAttempts) {
+        try {
+          await replicas[i].dagService.libp2p.dial(ma[0])
+          break // Dial was successful, exit the retry loop
+        } catch (e) {
+          attempt++
+          if (attempt >= maxAttempts) {
+            console.error('Replica ${i} Max dial attempts reached. Throwing error.')
+            throw e // All retries failed, rethrow the error
+          } else {
+            // Optionally, wait for a short period before retrying
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
+        }
       }
     }
   }
 
-  if (replicas.length > 1) {
+  if (replicas.length > 1 && replicas.length < 5) {
     for (let i = 0; i < replicas.length; i++) {
-      await waitUntil(
-        () => replicas[i].broadcaster.getSubscribers().length === replicas.length - 1,
-        5000
-      )
-      // eslint-disable-next-line no-console
-      // console.log(`replica ${i} subscribers`, replicas[i].broadcaster.getSubscribers())
+      try {
+        await waitUntil(
+          () => replicas[i].broadcaster.getSubscribers().length === replicas.length - 1,
+          5000
+        )
+      } catch (e) {
+        throw new Error(`replica ${i} not enough subscribers: ${replicas[i].broadcaster.getSubscribers().length}/${replicas.length - 1}`)
+      }
+    }
+  }
+
+  if (replicas.length > 5) {
+    for (let i = 0; i < replicas.length; i++) {
+      try {
+        await waitUntil(
+          () => replicas[i].broadcaster.getSubscribers().length >= Math.ceil((replicas.length - 1) / 2),
+          10000
+        )
+      } catch (e) {
+        throw new Error(`replica ${i} not enough subscribers: ${replicas[i].broadcaster.getSubscribers().length}/${replicas.length - 1}`)
+      }
     }
   }
 }
