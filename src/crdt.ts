@@ -76,14 +76,14 @@ export interface CRDTLibp2pServices extends ServiceMap {
 export function defaultOptions (): Options {
   return {
     loggerPrefix: 'crdt',
-    rebroadcastInterval: 5_000, // 5 seconds in milliseconds
+    rebroadcastInterval: 5 * 1000, // 5 seconds in milliseconds
     putHook: undefined,
     deleteHook: undefined,
     numWorkers: 5,
-    dagSyncerTimeout: 300_000, // 5 minutes in milliseconds
-    maxBatchDeltaSize: 1_048_576, // 1MB
-    repairInterval: 3_600_000, // 1 hour in milliseconds
-    logInterval: 60_000, // 1 minute in milliseconds
+    dagSyncerTimeout: 5 * 60 * 1000, // 5 minutes in milliseconds
+    maxBatchDeltaSize: 1024 * 1024, // 1MB
+    repairInterval: 60 * 60 * 1000, // 1 hour in milliseconds
+    logInterval: 60 * 1000, // 1 minute in milliseconds
     multiHeadProcessing: false
   }
 }
@@ -133,6 +133,30 @@ export class CRDTDatastore {
       opts = { ...defaultOptions(), ...options }
     } else {
       opts = defaultOptions()
+    }
+
+    if (opts.rebroadcastInterval < 1) {
+      throw new Error('rebroadcastInterval must be greater than 0')
+    }
+
+    if (opts.numWorkers < 1) {
+      throw new Error('numWorkers must be greater than 0')
+    }
+
+    if (opts.dagSyncerTimeout < 1) {
+      throw new Error('dagSyncerTimeout must be greater than 0')
+    }
+
+    if (opts.maxBatchDeltaSize < 1) {
+      throw new Error('maxBatchDeltaSize must be greater than 0')
+    }
+
+    if (opts.repairInterval < 1) {
+      throw new Error('repairInterval must be greater than 0')
+    }
+
+    if (opts.logInterval < 1) {
+      throw new Error('logInterval must be greater than 0')
     }
 
     this.ctx = new AbortController()

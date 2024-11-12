@@ -148,7 +148,6 @@ describe('Datastore', () => {
   describe('Key History', () => {
     it('should return the correct key history', async () => {
       const replicas = await createReplicas(1)
-      // await connectReplicas(replicas)
 
       const key1 = new Key('/test/key1')
       await replicas[0].put(key1, new TextEncoder().encode('hola1'))
@@ -380,9 +379,9 @@ describe('Datastore', () => {
 
       await connectReplicas(replicas)
 
-      await waitKeyValueConvergence(replicas, keys, 200000, 1000)
+      await waitKeyValueConvergence(replicas, keys, 50_000, 1000)
 
-      await waitHeadConvergence(replicas, 50000, 1000)
-    }, 300000)
+      await waitHeadConvergence(replicas, 50_000, 1000)
+    }, 100_000)
   })
 })
