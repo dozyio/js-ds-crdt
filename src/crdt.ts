@@ -387,7 +387,7 @@ export class CRDTDatastore {
 
   public async markDirty (): Promise<void> {
     this.logger.error('Marking datastore as dirty')
-    await this.store.put(this.dirtyKey(), new Uint8Array())
+    await this.store.put(this.dirtyKey(), new Uint8Array([1]))
   }
 
   public async isDirty (): Promise<boolean> {
