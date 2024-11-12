@@ -114,12 +114,9 @@ export class CRDTDatastore {
   private readonly seenHeads: Map<CID, boolean>
   private curDelta: dpb.delta.Delta | null = null
   private readonly curDeltaMutex: Mutex = new Mutex()
-  // private readonly jobQueue: DagJob[]
-  // private readonly sendJobs: DagJob[]
   private readonly queuedChildren: CidSafeSet
   private readonly nodeGetter: CRDTNodeGetter
   private readonly dagJobQueue: PQueue
-  private readonly sendJobQueue: PQueue
   private scheduledRebroadcast!: NodeJS.Timeout | number
   private scheduledLogStats!: NodeJS.Timeout | number
   private scheduledRepair!: NodeJS.Timeout | number
@@ -147,15 +144,12 @@ export class CRDTDatastore {
     this.dagService = dagSyncer
     this.broadcaster = broadcaster
     this.seenHeads = new Map<CID, boolean>()
-    // this.jobQueue = []
-    // this.sendJobs = []
     this.queuedChildren = new CidSafeSet()
     this.nodeGetter = new CRDTNodeGetter(
       this.dagService.blockstore,
       this.prefixedLogger.forComponent('ipld')
     )
-    this.dagJobQueue = new PQueue({ concurrency: 20 /* this.options.numWorkers */ })
-    this.sendJobQueue = new PQueue({ concurrency: 1 })
+    this.dagJobQueue = new PQueue({ concurrency: this.options.numWorkers })
 
     // debug.enable(`${this.options.loggerPrefix}*`) // 'crdt*,*crdt:trace')
     // debug.enable('*,*trace')
@@ -285,21 +279,6 @@ export class CRDTDatastore {
     })
   }
 
-  // // Enqueue a Send job
-  // private async enqueueSendJob (job: DagJob): Promise<void> {
-  //   if (this.ctx.signal.aborted) {
-  //     return
-  //   }
-  //
-  //   await this.sendJobQueue.add(async () => {
-  //     try {
-  //       await this.processSendJob(job)
-  //     } catch (err) {
-  //       this.logger.error('Error in processSendJob:', err)
-  //     }
-  //   })
-  // }
-
   // Process a DAG job
   private async processDagJob (job: DagJob): Promise<void> {
     this.logger('Processing DAG job')
@@ -331,13 +310,6 @@ export class CRDTDatastore {
     }
     job.session.release()
   }
-
-  // // Process a Send job
-  // private async processSendJob (job: DagJob): Promise<void> {
-  //   this.logger('Processing Send job')
-  //   // Enqueue the job into the DAG job queue
-  //   await this.enqueueJob(job)
-  // }
 
   public async repair (): Promise<void> {
     if (this.options.repairInterval === 0) return
@@ -430,10 +402,10 @@ export class CRDTDatastore {
   public async logStats (): Promise<void> {
     const heads = await this.heads.list()
     // console.log(
-    //   `Number of heads: ${heads.heads.length}. Max height: ${heads.maxHeight}. Queued DAG jobs: ${this.dagJobQueue.size}. Running DAG jobs: ${this.dagJobQueue.pending}. Queued Send jobs: ${this.sendJobQueue.size}. Running Send jobs: ${this.sendJobQueue.pending}. Dirty: ${await this.isDirty()}`
+    //   `Number of heads: ${heads.heads.length}. Max height: ${heads.maxHeight}. Queued DAG jobs: ${this.dagJobQueue.size}. Running DAG jobs: ${this.dagJobQueue.pending}. Dirty: ${await this.isDirty()}`
     // )
     this.logger(
-      `Number of heads: ${heads.heads.length}. Max height: ${heads.maxHeight}. Queued DAG jobs: ${this.dagJobQueue.size}. Running DAG jobs: ${this.dagJobQueue.pending}. Queued Send jobs: ${this.sendJobQueue.size}. Running Send jobs: ${this.sendJobQueue.pending}. Dirty: ${await this.isDirty()}`
+      `Number of heads: ${heads.heads.length}. Max height: ${heads.maxHeight}. Queued DAG jobs: ${this.dagJobQueue.size}. Running DAG jobs: ${this.dagJobQueue.pending}. Dirty: ${await this.isDirty()}`
     )
   }
 
@@ -866,11 +838,10 @@ export class CRDTDatastore {
       globalThis.clearTimeout(this.scheduledLogStats)
     }
 
-    // Wait for the queues to finish processing
-    this.logger('Waiting for queues to finish processing')
-    await Promise.all([
-      this.dagJobQueue.onIdle()
-    ])
+    if (this.dagJobQueue.size > 0) {
+      // we left something in the queue
+      await this.markDirty()
+    }
 
     if (await this.isDirty()) {
       this.logger.error('Datastore closed while marked as dirty')
