@@ -7,6 +7,7 @@ import {
   type Pair
 } from 'interface-datastore'
 // import drain from 'it-drain'
+import drain from 'it-drain'
 import { CID } from 'multiformats/cid'
 // import debug from 'weald'
 import PQueue from 'p-queue'
@@ -697,31 +698,43 @@ export class CRDTDatastore {
 
     const node = await CRDTNodeGetter.makeNode(delta, heads)
 
+    // Add the block to the blockstore
     await this.dagService.blockstore.put(node.cid, node.bytes, {
       onProgress: (evt) => {
         this.logger('blockstore put', evt.type, evt.detail)
       }
     })
 
+    // Pin the block so it doesn't get garbage collected
     try {
-      await this.dagService.routing.provide(node.cid, {
+      await drain(this.dagService.pins.add(node.cid, {
         onProgress: (evt) => {
-          this.logger('dagService routing provide', evt.type, evt.detail)
+          this.logger('dagService pin', evt.type, evt.detail)
         }
-      })
+      }))
     } catch (err) {
-      this.logger.error(`Error providing block ${node.cid}: ${err}`)
+      this.logger.error(`Error pinning block ${node.cid}: ${err}`)
     }
 
-    // try {
-    //   await drain(this.dagService.pins.add(node.cid, {
-    //     onProgress: (evt) => {
-    //       this.logger('dagService pin', evt.type, evt.detail)
-    //     }
-    //   }))
-    // } catch (err) {
-    //   this.logger.error(`Error pinning block ${node.cid}: ${err}`)
-    // }
+    // Inform the network (DHT) that we can provide the CID
+    const signal = AbortSignal.timeout(5000)
+
+    void (async () => {
+      try {
+        await this.dagService.routing.provide(node.cid, {
+          onProgress: (evt) => {
+            this.logger('dagService routing provide', evt.type, evt.detail)
+          },
+          signal
+        })
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          this.logger(`Provide operation aborted for block ${node.cid}`)
+        } else {
+          this.logger.error(`Error providing block ${node.cid}: ${err}`)
+        }
+      }
+    })()
 
     return node
   }
